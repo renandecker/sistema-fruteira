@@ -1,0 +1,3 @@
+# Opcional: banco único para prod/homolog (em dev o Quarkus usa Dev Services)
+services:
+  postgres: { image: postgres:16, environment: { POSTGRES_PASSWORD: fruteira, POSTGRES_DB: fruteira }, ports: ["5432:5432"] }

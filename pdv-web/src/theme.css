@@ -1,0 +1,66 @@
+/* Tema Fruteira Conventos — cores extraídas da logo */
+:root{
+  --verde:#0a9560; --verde-escuro:#066b43; --verde-claro:#e6f4ec;
+  --vermelho:#c8202f; --vermelho-escuro:#9e1521; --branco:#fff;
+  --texto:#16332a; --borda:#bfdccc; --sombra:0 2px 8px #0a95602e;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Segoe UI',system-ui,sans-serif;color:var(--texto);background:var(--verde-claro)}
+.pdv{display:grid;grid-template-columns:2fr 1fr;height:100vh}
+.main{display:flex;flex-direction:column;overflow:hidden}
+.topbar{background:var(--verde);color:#fff;display:flex;align-items:center;gap:16px;padding:8px 16px;border-bottom:4px solid var(--vermelho)}
+.topbar img{height:62px;border-radius:8px;box-shadow:0 0 0 2px #fff6}
+.topbar .peso{margin-left:auto;background:#fff;color:var(--verde-escuro);padding:4px 16px;border-radius:10px;font-size:30px;font-weight:700;font-variant-numeric:tabular-nums}
+.topbar .plu{background:var(--verde-escuro);padding:6px 12px;border-radius:8px}
+.msg{margin:10px 12px 0;background:#fff;border-left:5px solid var(--vermelho);padding:8px 12px;border-radius:6px}
+.grid{flex:1;overflow:auto;padding:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;align-content:start}
+.card{background:#fff;border:2px solid var(--borda);border-radius:14px;padding:10px;font-size:15px;cursor:pointer;box-shadow:var(--sombra);transition:.12s;color:var(--texto)}
+.card:hover,.card:active{border-color:var(--verde);transform:translateY(-2px)}
+.card .emoji{font-size:40px}.card .plu-tag{background:var(--vermelho);color:#fff;border-radius:6px;padding:0 6px;font-weight:700}
+.card .preco{color:var(--verde-escuro);font-weight:700}.card s{color:var(--vermelho)}
+.side{background:#fff;border-left:1px solid var(--borda);display:flex;flex-direction:column;padding:12px}
+.side input{padding:10px;border:2px solid var(--borda);border-radius:8px;font-size:15px}
+.side ul{flex:1;overflow:auto;padding:0;margin:8px 0;list-style:none}
+.side li{display:flex;justify-content:space-between;padding:8px 4px;border-bottom:1px dashed var(--borda)}
+.total{font-size:42px;margin:4px 0;color:var(--verde-escuro)}
+.btn{background:var(--verde);color:#fff;border:0;border-radius:10px;padding:12px 18px;font-size:16px;font-weight:700;cursor:pointer}
+.btn:hover{background:var(--verde-escuro)}.btn:disabled{background:#9bb9aa;cursor:not-allowed}
+.btn.pagar{background:var(--vermelho);font-size:24px;padding:16px}.btn.pagar:hover{background:var(--vermelho-escuro)}
+.btn.sec{background:#fff;color:var(--verde-escuro);border:2px solid var(--verde)}
+.modal{position:fixed;inset:0;background:#06311fcc;display:grid;place-items:center}
+.modal>div{background:#fff;padding:24px;border-radius:16px;min-width:380px;border-top:8px solid var(--verde)}
+.meios{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.meios button{padding:8px 12px;border-radius:20px;border:2px solid var(--verde);background:#fff;color:var(--verde-escuro);cursor:pointer}
+.meios button.on{background:var(--verde);color:#fff}
+
+/* ===== Layout com menu lateral ===== */
+.app{display:grid;grid-template-columns:var(--w,250px) 1fr;height:100vh;transition:grid-template-columns .15s}
+.conteudo{overflow:auto;height:100vh;min-width:0}
+.nav{background:var(--verde-escuro);color:#fff;display:flex;flex-direction:column;height:100vh;border-right:4px solid var(--vermelho)}
+.nav-topo{display:flex;align-items:center;gap:8px;padding:8px;background:var(--verde)}
+.nav-topo img{height:48px;border-radius:6px;min-width:0;max-width:calc(100% - 50px);object-fit:contain}
+.hamb{background:#fff2;border:0;color:#fff;font-size:20px;border-radius:8px;width:40px;height:40px;cursor:pointer}
+.nav-lista{flex:1;overflow:auto;padding:6px}
+.grupo{font-size:11px;letter-spacing:.08em;text-transform:uppercase;opacity:.65;margin:14px 8px 4px}
+.navitem{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;border-left:4px solid transparent;color:#fff;padding:9px 10px;border-radius:8px;cursor:pointer;font-size:15px;text-align:left}
+.navitem span{font-size:20px;width:26px;text-align:center}.navitem em{font-style:normal;flex:1}
+.navitem small{background:#fff3;border-radius:10px;padding:1px 7px;font-size:10px}
+.navitem:hover{background:#ffffff1f}.navitem.on{background:var(--verde);border-left-color:var(--vermelho);font-weight:700}
+.nav-rodape{padding:10px;font-size:12px;background:#0003;display:flex;flex-direction:column;gap:4px}
+.nav-rodape select{padding:6px;border-radius:6px}
+/* páginas */
+.page{padding:22px 28px}.page h1{margin-top:0;color:var(--verde-escuro)}
+.tab{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;box-shadow:var(--sombra)}
+.tab th{background:var(--verde);color:#fff;text-align:left;padding:10px}.tab td{padding:8px 10px;border-bottom:1px solid var(--borda)}
+.barra{background:#fff;padding:12px;border-radius:10px;margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;box-shadow:var(--sombra)}
+.form{background:#fff;padding:18px;border-radius:12px;max-width:460px;display:flex;flex-direction:column;gap:12px;box-shadow:var(--sombra)}
+.form label{display:flex;flex-direction:column;gap:4px;font-size:14px;font-weight:600}
+input,select{padding:8px;border:2px solid var(--borda);border-radius:8px;font-size:15px}
+.vazio{background:#fff;border:2px dashed var(--borda);border-radius:14px;padding:40px;text-align:center;max-width:560px}
+.badge{background:var(--vermelho);color:#fff;border-radius:20px;padding:4px 14px;font-size:13px}
+.classe{padding:2px 12px;border-radius:12px;color:#fff;font-weight:700}.cA{background:var(--verde)}.cB{background:#e0a100}.cC{background:var(--vermelho)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.grid2 label{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600}
+.form.wide{max-width:none}textarea{padding:8px;border:2px solid var(--borda);border-radius:8px;font:inherit}
+a.btn{text-decoration:none;display:inline-block}h3{color:var(--verde-escuro)}
+.etiqueta{background:#fff;border:2px dashed var(--verde);border-radius:10px;padding:14px;max-width:420px;display:flex;flex-direction:column;gap:4px}
+@media print{body *{visibility:hidden}.area-print,.area-print *{visibility:visible}.area-print{position:absolute;left:0;top:0;border:0}}
