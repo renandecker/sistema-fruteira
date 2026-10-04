@@ -5,11 +5,18 @@ import { useBalanca } from './balanca.js'
 import { PROD, KC } from './auth.js'
 
 const R = '/api/retaguarda'
+const Selo = ({ x }) => x.ativo === false ? <span className="classe off">Desativado</span> : null
+const BtnAtivo = ({ x, onDesativar, onReativar }) => x.ativo === false
+  ? <button className="btn sec" onClick={() => onReativar(x)}>Reativar</button>
+  : <button className="btn sec" onClick={() => onDesativar(x)}>Desativar</button>
+const nota = 'Registros desativados continuam no histórico e na auditoria; somente o gerente os vê e pode reativá-los.'
 const dataBR = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : '—'
 
 /* ---------- Cadastros ---------- */
-export function NovoProduto({ onSave }) {
-  const ini = { nome: '', unidade: 'KG', categoria: '', precoVarejo: '', plu: '', taxaPerdaPct: 0, ncm: '', codigoBarras: '' }
+// Teclas permitidas p/ Ctrl+tecla. Ficam de fora N, T e W: o navegador reserva Ctrl+N/T/W e a página não consegue interceptá-los.
+export const TECLAS = [...'0123456789ABCDEFGHIJKLMOPQRSUVXYZ']
+export function NovoProduto({ onSave, usados = [] }) {
+  const ini = { nome: '', unidade: 'KG', categoria: '', precoVarejo: '', plu: '', atalho: '', taxaPerdaPct: 0, ncm: '', codigoBarras: '' }
   const [f, s, setF] = useForm(ini); const [msg, setMsg] = useState('')
   const salvar = () => post('/api/catalogo/produtos', { ...f, precoVarejo: +f.precoVarejo, plu: f.plu ? +f.plu : null, taxaPerdaPct: +f.taxaPerdaPct })
     .then(() => { setF(ini); setMsg('Produto cadastrado ✔'); onSave() }).catch(e => setMsg(String(e)))
@@ -20,6 +27,8 @@ export function NovoProduto({ onSave }) {
       <label>Categoria<input value={f.categoria} onChange={s('categoria')} /></label>
       <label>Preço varejo<input type="number" value={f.precoVarejo} onChange={s('precoVarejo')} /></label>
       <label>PLU rápido<input type="number" value={f.plu} onChange={s('plu')} /></label>
+      <label>Atalho no caixa (Ctrl + …) <small>opcional</small><select value={f.atalho} onChange={s('atalho')}><option value="">Sem atalho</option>
+        {TECLAS.map(t => <option key={t} value={t} disabled={usados.includes(t)}>{t}{usados.includes(t) ? ' (em uso)' : ''}</option>)}</select></label>
       <label>Perda esperada %<input type="number" value={f.taxaPerdaPct} onChange={s('taxaPerdaPct')} /></label>
       <label>NCM<input value={f.ncm} onChange={s('ncm')} /></label>
       <label>Cód. barras<input value={f.codigoBarras} onChange={s('codigoBarras')} /></label></div>
@@ -27,27 +36,34 @@ export function NovoProduto({ onSave }) {
 }
 
 export function Fornecedores() {
-  const [l, c] = useLista(R + '/fornecedores'); const ini = { nome: '', documento: '', tipo: 'CEASA', telefone: '' }
-  const [f, s, setF] = useForm(ini)
-  const add = () => post(R + '/fornecedores', f).then(() => { setF(ini); c() })
-  const del = id => api(`${R}/fornecedores/${id}`, { method: 'DELETE' }).then(c)
-  return <Pagina titulo="🚚 Fornecedores">
+  const [l, c] = useLista(R + '/fornecedores?inativos=true'); const ini = { nome: '', documento: '', tipo: 'CEASA', telefone: '' }
+  const [f, s, setF] = useForm(ini); const [msg, setMsg] = useState('')
+  const erro = e => setMsg(String(e) || 'Operação não permitida')
+  const add = () => post(R + '/fornecedores', f).then(() => { setF(ini); c() }).catch(erro)
+  const desativar = x => window.confirm(`Desativar o fornecedor "${x.nome}"?\n${nota}`) && api(`${R}/fornecedores/${x.id}`, { method: 'DELETE' }).then(c).catch(erro)
+  const reativar = x => post(`${R}/fornecedores/${x.id}/reativar`).then(c).catch(erro)
+  return <Pagina titulo="🚚 Fornecedores"><Aviso m={msg} />
     <div className="barra"><input placeholder="Nome" value={f.nome} onChange={s('nome')} /><input placeholder="CNPJ/CPF" value={f.documento} onChange={s('documento')} />
       <select value={f.tipo} onChange={s('tipo')}><option value="CEASA">CEASA</option><option value="PRODUTOR_RURAL">Produtor rural</option><option value="EMPRESA">Empresa</option></select>
       <input placeholder="Telefone" value={f.telefone} onChange={s('telefone')} /><button className="btn" disabled={!f.nome} onClick={add}>Adicionar</button></div>
-    <table className="tab"><thead><tr><th>Nome</th><th>Documento</th><th>Tipo</th><th>Telefone</th><th></th></tr></thead>
-      <tbody>{l.map(x => <tr key={x.id}><td>{x.nome}</td><td>{x.documento}</td><td>{x.tipo}</td><td>{x.telefone}</td><td><button className="btn sec" onClick={() => del(x.id)}>Excluir</button></td></tr>)}</tbody></table></Pagina>
+    <table className="tab"><thead><tr><th>Nome</th><th>Documento</th><th>Tipo</th><th>Telefone</th><th>Situação</th><th></th></tr></thead>
+      <tbody>{l.map(x => <tr key={x.id} className={x.ativo === false ? 'inativo' : ''}><td>{x.nome}</td><td>{x.documento}</td><td>{x.tipo}</td><td>{x.telefone}</td>
+        <td>{x.ativo === false ? <Selo x={x} /> : 'Ativo'}</td><td><BtnAtivo x={x} onDesativar={desativar} onReativar={reativar} /></td></tr>)}</tbody></table></Pagina>
 }
 
 export function Clientes() {
-  const [l, c] = useLista(R + '/clientes'); const ini = { nome: '', cpf: '', telefone: '' }; const [f, s, setF] = useForm(ini); const [msg, setMsg] = useState('')
-  const add = () => post(R + '/clientes', f).then(() => { setF(ini); c() }).catch(e => setMsg('Erro (CPF já cadastrado?)'))
+  const [l, c] = useLista(R + '/clientes?inativos=true'); const ini = { nome: '', cpf: '', telefone: '' }; const [f, s, setF] = useForm(ini); const [msg, setMsg] = useState('')
+  const erro = (e, padrao) => setMsg(String(e) || padrao || 'Operação não permitida')
+  const add = () => post(R + '/clientes', f).then(() => { setF(ini); c(); setMsg('') }).catch(e => erro(e, 'Não foi possível cadastrar (CPF já cadastrado ou de cliente desativado).'))
+  const desativar = x => window.confirm(`Desativar o cliente "${x.nome}"?\n${nota}`) && api(`${R}/clientes/${x.id}`, { method: 'DELETE' }).then(c).catch(erro)
+  const reativar = x => post(`${R}/clientes/${x.id}/reativar`).then(c).catch(erro)
   return <Pagina titulo="👥 Clientes e fidelidade"><Aviso m={msg} />
     <div className="barra"><input placeholder="Nome" value={f.nome} onChange={s('nome')} /><input placeholder="CPF (só números)" value={f.cpf} onChange={s('cpf')} />
       <input placeholder="WhatsApp com DDD" value={f.telefone} onChange={s('telefone')} /><button className="btn" disabled={!f.nome || !f.cpf} onClick={add}>Cadastrar</button>
-      <small>Cashback: 2% de cada compra identificada pelo CPF no caixa.</small></div>
-    <table className="tab"><thead><tr><th>Nome</th><th>CPF</th><th>WhatsApp</th><th>Cashback</th></tr></thead>
-      <tbody>{l.map(x => <tr key={x.id}><td>{x.nome}</td><td>{x.cpf}</td><td>{x.telefone}</td><td><b>{brl(x.cashback)}</b></td></tr>)}</tbody></table></Pagina>
+      <small>Cashback: 2% de cada compra identificada pelo CPF no caixa. Cliente desativado não acumula nem resgata.</small></div>
+    <table className="tab"><thead><tr><th>Nome</th><th>CPF</th><th>WhatsApp</th><th>Cashback</th><th>Situação</th><th></th></tr></thead>
+      <tbody>{l.map(x => <tr key={x.id} className={x.ativo === false ? 'inativo' : ''}><td>{x.nome}</td><td>{x.cpf}</td><td>{x.telefone}</td><td><b>{brl(x.cashback)}</b></td>
+        <td>{x.ativo === false ? <Selo x={x} /> : 'Ativo'}</td><td><BtnAtivo x={x} onDesativar={desativar} onReativar={reativar} /></td></tr>)}</tbody></table></Pagina>
 }
 
 /* ---------- Estoque / Compras ---------- */
@@ -99,19 +115,24 @@ export function ImportarXml() {
 }
 
 export function Ceasa() {
-  const [lista] = useProdutos(); const [res, cr] = useLista(R + '/cotacoes/resumo'); const [hist, ch] = useLista(R + '/cotacoes')
-  const [f, s, setF] = useForm({ produtoNome: '', fornecedor: '', preco: '' })
-  const add = () => post(R + '/cotacoes', { ...f, preco: +f.preco }).then(() => { setF({ ...f, preco: '' }); cr(); ch() })
-  return <Pagina titulo="📈 Cotações CEASA">
+  const [lista] = useProdutos(); const [res, cr] = useLista(R + '/cotacoes/resumo'); const [hist, ch] = useLista(R + '/cotacoes?inativos=true')
+  const [f, s, setF] = useForm({ produtoNome: '', fornecedor: '', preco: '' }); const [msg, setMsg] = useState('')
+  const recarregar = () => { cr(); ch() }
+  const erro = e => setMsg(String(e) || 'Operação não permitida')
+  const add = () => post(R + '/cotacoes', { ...f, preco: +f.preco }).then(() => { setF({ ...f, preco: '' }); recarregar() }).catch(erro)
+  const desativar = x => window.confirm(`Desativar a cotação de ${x.produtoNome} (${brl(x.preco)})?\n${nota}`) && api(`${R}/cotacoes/${x.id}`, { method: 'DELETE' }).then(recarregar).catch(erro)
+  const reativar = x => post(`${R}/cotacoes/${x.id}/reativar`).then(recarregar).catch(erro)
+  return <Pagina titulo="📈 Cotações CEASA"><Aviso m={msg} />
     <div className="barra"><input list="prods" placeholder="Produto" value={f.produtoNome} onChange={s('produtoNome')} /><datalist id="prods">{lista.map(p => <option key={p.id} value={p.nome} />)}</datalist>
       <input placeholder="Fornecedor" value={f.fornecedor} onChange={s('fornecedor')} /><input type="number" placeholder="Preço pago (R$/un.)" value={f.preco} onChange={s('preco')} />
       <button className="btn" disabled={!f.produtoNome || !f.preco} onClick={add}>Registrar cotação</button></div>
-    <h3>Resumo por produto</h3>
+    <h3>Resumo por produto <small>(só cotações ativas)</small></h3>
     <table className="tab"><thead><tr><th>Produto</th><th>Menor</th><th>Média</th><th>Maior</th><th>Último</th><th>Fornecedor</th></tr></thead>
       <tbody>{res.map(r => <tr key={r.produto}><td>{r.produto}</td><td>{brl(r.min)}</td><td>{brl(r.media)}</td><td>{brl(r.max)}</td><td><b>{brl(r.ultima)}</b></td><td>{r.fornecedorUltima}</td></tr>)}</tbody></table>
     <h3>Histórico</h3>
-    <table className="tab"><thead><tr><th>Data</th><th>Produto</th><th>Fornecedor</th><th>Preço</th></tr></thead>
-      <tbody>{hist.slice(0, 50).map(h => <tr key={h.id}><td>{dataBR(h.data)}</td><td>{h.produtoNome}</td><td>{h.fornecedor}</td><td>{brl(h.preco)}</td></tr>)}</tbody></table></Pagina>
+    <table className="tab"><thead><tr><th>Data</th><th>Produto</th><th>Fornecedor</th><th>Preço</th><th>Situação</th><th></th></tr></thead>
+      <tbody>{hist.slice(0, 80).map(h => <tr key={h.id} className={h.ativo === false ? 'inativo' : ''}><td>{dataBR(h.data)}</td><td>{h.produtoNome}</td><td>{h.fornecedor}</td><td>{brl(h.preco)}</td>
+        <td>{h.ativo === false ? <Selo x={h} /> : 'Ativa'}</td><td><BtnAtivo x={h} onDesativar={desativar} onReativar={reativar} /></td></tr>)}</tbody></table></Pagina>
 }
 
 export function Sugestao() {
@@ -138,22 +159,26 @@ export function Sugestao() {
 
 /* ---------- Financeiro / Fiscal ---------- */
 export function Contas() {
-  const [l, c] = useLista(R + '/contas'); const [tipo, setTipo] = useState('PAGAR')
+  const [l, c] = useLista(R + '/contas?inativos=true'); const [tipo, setTipo] = useState('PAGAR'); const [msg, setMsg] = useState('')
   const ini = { descricao: '', categoria: 'Fornecedores', valor: '', vencimento: new Date().toISOString().slice(0, 10) }; const [f, s, setF] = useForm(ini)
-  const add = () => post(R + '/contas', { ...f, tipo, valor: +f.valor }).then(() => { setF(ini); c() })
-  const rows = l.filter(x => x.tipo === tipo); const aberto = rows.filter(x => !x.pago).reduce((a, x) => a + x.valor, 0)
+  const erro = e => setMsg(String(e) || 'Operação não permitida (conta já paga?)')
+  const add = () => post(R + '/contas', { ...f, tipo, valor: +f.valor }).then(() => { setF(ini); c(); setMsg('') }).catch(erro)
+  const desativar = x => window.confirm(`Desativar a conta "${x.descricao}" (${brl(x.valor)})?\n${nota}`) && api(`${R}/contas/${x.id}`, { method: 'DELETE' }).then(c).catch(erro)
+  const reativar = x => post(`${R}/contas/${x.id}/reativar`).then(c).catch(erro)
+  const rows = l.filter(x => x.tipo === tipo); const aberto = rows.filter(x => !x.pago && x.ativo !== false).reduce((a, x) => a + x.valor, 0)
   const hoje = new Date().toISOString().slice(0, 10)
-  return <Pagina titulo="💳 Contas a pagar / receber">
+  return <Pagina titulo="💳 Contas a pagar / receber"><Aviso m={msg} />
     <div className="meios"><button className={tipo === 'PAGAR' ? 'on' : ''} onClick={() => setTipo('PAGAR')}>A pagar</button><button className={tipo === 'RECEBER' ? 'on' : ''} onClick={() => setTipo('RECEBER')}>A receber</button></div>
     <div className="barra"><input placeholder="Descrição" value={f.descricao} onChange={s('descricao')} />
       <select value={f.categoria} onChange={s('categoria')}>{['Fornecedores', 'Aluguel', 'Energia', 'Salários', 'Impostos', 'Outros'].map(x => <option key={x}>{x}</option>)}</select>
       <input type="number" placeholder="Valor" value={f.valor} onChange={s('valor')} /><input type="date" value={f.vencimento} onChange={s('vencimento')} />
       <button className="btn" disabled={!f.descricao || !f.valor} onClick={add}>Lançar</button></div>
-    <p>Em aberto: <b>{brl(aberto)}</b></p>
+    <p>Em aberto: <b>{brl(aberto)}</b> <small>(contas desativadas não entram no total, no DRE nem no fluxo)</small></p>
     <table className="tab"><thead><tr><th>Vencimento</th><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Situação</th><th></th></tr></thead>
-      <tbody>{rows.map(x => <tr key={x.id}><td>{dataBR(x.vencimento)}</td><td>{x.descricao}</td><td>{x.categoria}</td><td>{brl(x.valor)}</td>
-        <td>{x.pago ? `Pago em ${dataBR(x.dataPagamento)}` : x.vencimento < hoje ? <b style={{ color: 'var(--vermelho)' }}>Vencida</b> : 'Em aberto'}</td>
-        <td>{!x.pago && <button className="btn sec" onClick={() => post(`${R}/contas/${x.id}/baixar`).then(c)}>Baixar</button>}</td></tr>)}</tbody></table></Pagina>
+      <tbody>{rows.map(x => <tr key={x.id} className={x.ativo === false ? 'inativo' : ''}><td>{dataBR(x.vencimento)}</td><td>{x.descricao}</td><td>{x.categoria}</td><td>{brl(x.valor)}</td>
+        <td>{x.ativo === false ? <Selo x={x} /> : x.pago ? `Pago em ${dataBR(x.dataPagamento)}` : x.vencimento < hoje ? <b style={{ color: 'var(--vermelho)' }}>Vencida</b> : 'Em aberto'}</td>
+        <td>{x.ativo !== false && !x.pago && <button className="btn sec" onClick={() => post(`${R}/contas/${x.id}/baixar`).then(c).catch(erro)}>Baixar</button>}{' '}
+          {(x.ativo === false || !x.pago) && <BtnAtivo x={x} onDesativar={desativar} onReativar={reativar} />}</td></tr>)}</tbody></table></Pagina>
 }
 
 export function Dre() {
@@ -310,8 +335,8 @@ function UsuariosLocal() {
       <select value={f.perfil} onChange={s('perfil')}><option value="operador">Operador</option><option value="supervisor">Supervisor</option><option value="gerente">Gerente</option></select>
       <input type="password" placeholder="Senha (mín. 4)" value={f.pin} onChange={s('pin')} /><button className="btn" disabled={!f.nome || !f.login} onClick={add}>Criar</button></div>
     <table className="tab"><thead><tr><th>Nome</th><th>Login</th><th>Perfil</th><th>Situação</th><th></th></tr></thead>
-      <tbody>{l.map(u => <tr key={u.id}><td>{u.nome}</td><td>{u.login}</td><td>{u.perfil}</td><td>{u.ativo ? 'Ativo' : 'Inativo'}</td>
-        <td><button className="btn sec" onClick={() => post(`${R}/usuarios/${u.id}/ativo?valor=${!u.ativo}`).then(c)}>{u.ativo ? 'Desativar' : 'Ativar'}</button>{' '}
+      <tbody>{l.map(u => <tr key={u.id}><td>{u.nome}</td><td>{u.login}</td><td>{u.perfil}</td><td>{u.ativo ? 'Ativo' : <span className="classe off">Desativado</span>}</td>
+        <td><button className="btn sec" onClick={() => post(`${R}/usuarios/${u.id}/ativo?valor=${!u.ativo}`).then(c)}>{u.ativo ? 'Desativar' : 'Reativar'}</button>{' '}
           <button className="btn sec" onClick={() => { const n = window.prompt(`Nova senha para ${u.login} (mín. 4 caracteres):`); if (n) post(`${R}/usuarios/${u.id}/senha?nova=${encodeURIComponent(n)}`).then(() => setMsg('Senha alterada ✔')).catch(e => setMsg(String(e))) }}>Trocar senha</button></td></tr>)}</tbody></table>
     <p><small>Senhas guardadas com hash (SHA-256). Em produção, use Keycloak/OIDC e valide o perfil também nas APIs.</small></p></Pagina>
 }

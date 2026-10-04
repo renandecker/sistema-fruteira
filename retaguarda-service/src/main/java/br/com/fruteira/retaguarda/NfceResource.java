@@ -1,6 +1,7 @@
 package br.com.fruteira.retaguarda;
 
 import br.com.fruteira.retaguarda.Entities.Nota;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
@@ -16,6 +17,7 @@ import java.util.List;
  */
 @Path("/nfce") @Produces(MediaType.APPLICATION_JSON) @Consumes(MediaType.APPLICATION_JSON)
 public class NfceResource {
+    @Inject Auditor auditor;
     public record Emitir(Long vendaId, BigDecimal valor, String cpf, boolean contingencia) {}
 
     @GET public List<Nota> listar() { return Nota.find("order by id desc").list(); }
@@ -36,6 +38,7 @@ public class NfceResource {
         Nota n = achar(id);
         if (!"CONTINGENCIA".equals(n.status)) throw new WebApplicationException("Nota não está em contingência", 422);
         n.status = "AUTORIZADA"; n.protocolo = "SIM" + System.currentTimeMillis();
+        auditor.registrar("EDICAO", "NFC-e", id, "NFC-e nº " + n.numero + " transmitida (saiu da contingência)", null, null);
         return n;
     }
     @POST @Path("/{id}/cancelar") @Transactional
@@ -43,6 +46,7 @@ public class NfceResource {
         Nota n = achar(id);
         if (!"AUTORIZADA".equals(n.status)) throw new WebApplicationException("Só é possível cancelar nota autorizada", 422);
         n.status = "CANCELADA";
+        auditor.registrar("CANCELAMENTO", "NFC-e", id, "NFC-e nº " + n.numero + " cancelada (venda #" + n.vendaId + ", R$ " + n.valor + ")", null, null);
         return n;
     }
     private Nota achar(Long id) { Nota n = Nota.findById(id); if (n == null) throw new NotFoundException(); return n; }

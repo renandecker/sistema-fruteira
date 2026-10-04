@@ -1,6 +1,7 @@
 package br.com.fruteira.retaguarda;
 
 import br.com.fruteira.retaguarda.Entities.Usuario;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
@@ -10,6 +11,7 @@ import java.util.*;
 /** Cadastro simples de usuários/PIN. Em produção, substituir por Keycloak (quarkus-oidc). */
 @Path("/usuarios") @Produces(MediaType.APPLICATION_JSON) @Consumes(MediaType.APPLICATION_JSON)
 public class UsuarioResource {
+    @Inject Auditor auditor;
     public record Pin(String pin) {}
     public record Login(String login, String senha) {}
 
@@ -25,17 +27,23 @@ public class UsuarioResource {
     public Usuario trocarSenha(@PathParam("id") Long id, @QueryParam("nova") String nova) {
         if (nova == null || nova.length() < 4) throw new WebApplicationException("Senha mínima de 4 caracteres", 422);
         Usuario u = Usuario.findById(id); if (u == null) throw new NotFoundException();
-        u.pinHash = hash(nova); return u;
+        u.pinHash = hash(nova);
+        auditor.registrar("EDICAO", "Usuário", id, "Senha alterada do usuário '" + u.login + "'", null, null);
+        return u;
     }
 
     @GET public List<Usuario> listar() { return Usuario.listAll(); }
 
     @POST @Transactional public Usuario criar(Usuario u) {
         if (u.pin == null || u.pin.length() < 4) throw new WebApplicationException("Senha mínima de 4 caracteres", 422);
-        u.login = u.login.trim().toLowerCase(); u.pinHash = hash(u.pin); u.persist(); return u;
+        u.login = u.login.trim().toLowerCase(); u.pinHash = hash(u.pin); u.persist();
+        auditor.registrar("CADASTRO", "Usuário", u.id, "Usuário criado: " + u.login + " (" + u.perfil + ")", null, u);
+        return u;
     }
     @POST @Path("/{id}/ativo") @Transactional public Usuario ativo(@PathParam("id") Long id, @QueryParam("valor") boolean valor) {
-        Usuario u = Usuario.findById(id); if (u == null) throw new NotFoundException(); u.ativo = valor; return u;
+        Usuario u = Usuario.findById(id); if (u == null) throw new NotFoundException(); u.ativo = valor;
+        auditor.registrar(valor ? "REATIVACAO" : "DESATIVACAO", "Usuário", id, "Usuário '" + u.login + "' " + (valor ? "reativado" : "desativado"), null, null);
+        return u;
     }
     /** Autorização de supervisor/gerente no caixa (cancelamento, desconto, estorno) */
     @POST @Path("/validar")

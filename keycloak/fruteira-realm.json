@@ -12,8 +12,8 @@
   "clients": [
     { "clientId": "pdv-web", "name": "PDV Web", "enabled": true, "publicClient": true,
       "standardFlowEnabled": true, "directAccessGrantsEnabled": false,
-      "redirectUris": ["https://${FRONT_DOMAIN}/*"], "webOrigins": ["https://${FRONT_DOMAIN}"],
-      "attributes": { "pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "https://${FRONT_DOMAIN}/*" } },
+      "redirectUris": ["${FRONT_URL}/*"], "webOrigins": ["${FRONT_URL}"],
+      "attributes": { "pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "${FRONT_URL}/*" } },
     { "clientId": "fruteira-api", "name": "Fruteira API (microsserviços)", "enabled": true, "bearerOnly": true }
   ],
   "users": [

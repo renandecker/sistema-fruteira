@@ -23,3 +23,20 @@ export async function iniciarAuth() {
   return { nome: t.name || t.preferred_username, login: t.preferred_username, perfil: ['gerente', 'supervisor', 'operador'].find(r => roles.includes(r)) }
 }
 export const sairKeycloak = () => kc.logout({ redirectUri: window.location.origin })
+
+// DEV: sem token, o front informa quem está logado nos cabeçalhos X-Usuario/X-Perfil (usados na auditoria).
+// Em produção a identidade vem do token do Keycloak e esses cabeçalhos são ignorados pelo backend.
+export function instalarIdentidadeDev() {
+  if (PROD) return
+  const original = window.fetch.bind(window)
+  window.fetch = (input, init = {}) => {
+    const url = typeof input === 'string' ? input : input.url
+    if (url.startsWith('/api/')) {
+      try {
+        const u = JSON.parse(sessionStorage.getItem('user') || 'null')
+        if (u?.login) init = { ...init, headers: { ...(init.headers || {}), 'X-Usuario': u.login, 'X-Perfil': u.perfil } }
+      } catch { /* sem sessão */ }
+    }
+    return original(input, init)
+  }
+}

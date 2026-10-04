@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react'
-import { NovoProduto } from './paginas2.jsx'
+import { NovoProduto, TECLAS } from './paginas2.jsx'
 
 const brl = n => Number(n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const api = (p, o) => fetch(p, { headers: { 'Content-Type': 'application/json' }, ...o }).then(r => r.ok ? r.json().catch(() => ({})) : r.text().then(t => Promise.reject(t)))
 const post = (p, body) => api(p, { method: 'POST', body: body && JSON.stringify(body) })
-function useProdutos() {
-  const [l, setL] = useState([]); const carregar = () => api('/api/catalogo/produtos').then(setL).catch(() => {})
+function useProdutos(inativos = false) {
+  const [l, setL] = useState([]); const carregar = () => api('/api/catalogo/produtos' + (inativos ? '?inativos=true' : '')).then(setL).catch(() => {})
   useEffect(() => { carregar() }, []); return [l, carregar]
 }
 const Pagina = ({ titulo, children }) => <div className="page"><h1>{titulo}</h1>{children}</div>
@@ -21,26 +21,40 @@ export function EmBreve({ item }) {
 }
 
 export function Produtos() {
-  const [lista, recarregar] = useProdutos(); const [pct, setPct] = useState({}); const [msg, setMsg] = useState('')
+  const [lista, recarregar] = useProdutos(true); const [pct, setPct] = useState({}); const [msg, setMsg] = useState('')
   const [cat, setCat] = useState(''); const [margem, setMargem] = useState(40)
-  const cats = [...new Set(lista.map(p => p.categoria).filter(Boolean))]
-  const desc = (id, v) => post(`/api/catalogo/produtos/${id}/desconto-validade?pct=${v}`).then(recarregar).catch(e => setMsg(String(e)))
+  const cats = [...new Set(lista.filter(p => p.ativo !== false).map(p => p.categoria).filter(Boolean))]
+  const nDesativados = lista.filter(p => p.ativo === false).length
+  const usados = lista.filter(p => p.ativo !== false && p.atalho).map(p => p.atalho)
+  const trocarAtalho = (p, v) => api(`/api/catalogo/produtos/${p.id}`, { method: 'PUT', body: JSON.stringify({ ...p, atalho: v || null }) })
+    .then(() => { setMsg(v ? `Atalho Ctrl+${v} definido para "${p.nome}"` : `Atalho removido de "${p.nome}"`); recarregar() }).catch(erro)
+  const erro = e => setMsg(String(e) || 'Operação não permitida para o seu perfil')
+  const desc = (id, v) => post(`/api/catalogo/produtos/${id}/desconto-validade?pct=${v}`).then(recarregar).catch(erro)
   const ajustar = () => post(`/api/catalogo/produtos/categoria/${cat}/margem?margemPct=${margem}`)
-    .then(n => { setMsg(`Preços recalculados (${n} produtos)`); recarregar() }).catch(e => setMsg(String(e)))
+    .then(n => { setMsg(`Preços recalculados (${n} produtos)`); recarregar() }).catch(erro)
+  const desativar = p => window.confirm(`Desativar "${p.nome}"?\nEle some do PDV e das vendas, mas o histórico e a auditoria são mantidos (o PLU continua reservado). Somente o gerente vê e pode reativar.`)
+    && api(`/api/catalogo/produtos/${p.id}`, { method: 'DELETE' }).then(() => { setMsg(`"${p.nome}" desativado`); recarregar() }).catch(erro)
+  const reativar = p => post(`/api/catalogo/produtos/${p.id}/reativar`).then(() => { setMsg(`"${p.nome}" reativado`); recarregar() }).catch(erro)
   return <Pagina titulo="🍎 Produtos e preços">
     <Aviso m={msg} />
-    <NovoProduto onSave={recarregar} />
+    <NovoProduto onSave={recarregar} usados={usados} />
     <div className="barra"><b>Margem por categoria/safra:</b>
       <select value={cat} onChange={e => setCat(e.target.value)}><option value="">Categoria…</option>{cats.map(c => <option key={c}>{c}</option>)}</select>
       <input type="number" value={margem} onChange={e => setMargem(e.target.value)} style={{ width: 70 }} /> %
       <button className="btn" disabled={!cat} onClick={ajustar}>Recalcular preços</button>
       <small>preço = custo médio ÷ (1 − perda) × (1 + margem)</small></div>
-    <table className="tab"><thead><tr><th>PLU</th><th>Produto</th><th>Un.</th><th>Categoria</th><th>Custo médio</th><th>Perda %</th><th>Preço</th><th>Promoção</th><th>Desconto por validade</th></tr></thead>
-      <tbody>{lista.map(p => <tr key={p.id}><td>{p.plu}</td><td>{p.nome}</td><td>{p.unidade}</td><td>{p.categoria}</td>
+    {nDesativados > 0 && <p><small>{nDesativados} produto(s) desativado(s) — visíveis somente para o gerente.</small></p>}
+    <table className="tab"><thead><tr><th>PLU</th><th>Atalho (Ctrl+)</th><th>Produto</th><th>Un.</th><th>Categoria</th><th>Custo médio</th><th>Perda %</th><th>Preço</th><th>Promoção</th><th>Ações</th></tr></thead>
+      <tbody>{lista.map(p => <tr key={p.id} className={p.ativo === false ? 'inativo' : ''}><td>{p.plu}</td>
+        <td>{p.ativo === false ? (p.atalho ? `Ctrl+${p.atalho}` : '—') : <select value={p.atalho || ''} onChange={e => trocarAtalho(p, e.target.value)}>
+          <option value="">—</option>{TECLAS.map(t => { const emUso = usados.includes(t) && p.atalho !== t; return <option key={t} value={t} disabled={emUso}>{t}{emUso ? ' (em uso)' : ''}</option> })}</select>}</td>
+        <td>{p.nome} {p.ativo === false && <span className="classe off">Desativado</span>}</td><td>{p.unidade}</td><td>{p.categoria}</td>
         <td>{brl(p.custoMedio)}</td><td>{p.taxaPerdaPct}</td><td>{brl(p.precoVarejo)}</td><td>{p.precoPromocional ? brl(p.precoPromocional) : '—'}</td>
-        <td><input type="number" placeholder="%" style={{ width: 60 }} value={pct[p.id] ?? ''} onChange={e => setPct({ ...pct, [p.id]: e.target.value })} />{' '}
-          <button className="btn sec" disabled={!pct[p.id]} onClick={() => desc(p.id, pct[p.id])}>Aplicar</button>{' '}
-          {p.precoPromocional && <button className="btn sec" onClick={() => desc(p.id, 0)}>Remover</button>}</td></tr>)}</tbody></table>
+        <td>{p.ativo === false ? <button className="btn sec" onClick={() => reativar(p)}>Reativar</button> : <>
+          <input type="number" placeholder="% val." style={{ width: 64 }} value={pct[p.id] ?? ''} onChange={e => setPct({ ...pct, [p.id]: e.target.value })} />{' '}
+          <button className="btn sec" disabled={!pct[p.id]} onClick={() => desc(p.id, pct[p.id])}>Desconto</button>{' '}
+          {p.precoPromocional && <button className="btn sec" onClick={() => desc(p.id, 0)}>Remover promo</button>}{' '}
+          <button className="btn sec" onClick={() => desativar(p)}>Desativar</button></>}</td></tr>)}</tbody></table>
   </Pagina>
 }
 

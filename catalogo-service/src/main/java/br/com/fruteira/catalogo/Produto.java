@@ -13,6 +13,7 @@ public class Produto extends PanacheEntity {
     public BigDecimal precoPromocional;      // "sacolão do dia" / desconto por validade
     @Column(unique = true) public Integer plu;   // atalho numérico rápido (1 = Banana Prata)
     public String codigoBarras;
+    @Column(length = 1) public String atalho;   // opcional: 1 número (0-9) ou letra (A-Z) usado com Ctrl no PDV
     public String categoria;                 // folhosas, frutas de época...
     public String fotoUrl;                   // botão touch com foto
     public String ncm;

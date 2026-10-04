@@ -31,6 +31,7 @@ export const MENU = [
   { grupo: 'Relatórios', itens: [
     { id: 'abc', icone: '🏆', titulo: 'Curva ABC', status: 'ok', perfil: 'gerente' },
     { id: 'relperdas', icone: '🗑️', titulo: 'Perdas / descarte', status: 'ok', perfil: 'gerente' },
+    { id: 'auditoria', icone: '🕵️', titulo: 'Auditoria', status: 'ok', perfil: 'gerente' },
     { id: 'margem', icone: '💹', titulo: 'Margem por categoria', status: 'ok', perfil: 'gerente', desc: 'Margem de lucro por categoria, com a quebra esperada.' },
   ]},
   { grupo: 'Marketing', itens: [

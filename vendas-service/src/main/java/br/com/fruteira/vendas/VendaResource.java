@@ -17,6 +17,7 @@ import org.eclipse.microprofile.rest.client.inject.RestClient;
 public class VendaResource {
     @Inject @RestClient Clients.Catalogo catalogo;
     @Inject @RestClient Clients.Estoque estoque;
+    @Inject Auditor auditor;
     @ConfigProperty(name = "fruteira.gerente.pin") String pinGerente;
 
     /** pesoBalanca=true só pode ser enviado pelo agente de balança do PDV (leitura por cabo). */
@@ -28,7 +29,8 @@ public class VendaResource {
     public Venda finalizar(VendaReq req) {
         Venda v = new Venda(); v.cpfCliente = req.cpf();
         for (ItemReq ir : req.itens()) {
-            ProdutoDTO p = catalogo.buscar(ir.produtoId());              // preço SEMPRE vem do servidor
+            ProdutoDTO p = catalogo.buscar(ir.produtoId());
+            if (Boolean.FALSE.equals(p.ativo())) throw new WebApplicationException("Produto desativado: " + p.nome(), 422);              // preço SEMPRE vem do servidor
             if ("KG".equals(p.unidade()) && !ir.pesoBalanca())
                 throw new WebApplicationException("Peso digitado manualmente não é permitido para produto de balança", 422);
             Item i = new Item(); i.venda = v; i.produtoId = p.id(); i.nome = p.nome();
@@ -53,6 +55,7 @@ public class VendaResource {
         if (!pinGerente.equals(pin)) throw new ForbiddenException("Requer autorização do gerente");
         Venda v = Venda.findById(id); v.status = Venda.Status.CANCELADA;
         v.itens.forEach(i -> estoque.baixa(new BaixaDTO(i.produtoId, i.quantidade.negate(), "AJUSTE", "estorno venda " + id)));
+        auditor.registrar("CANCELAMENTO", "Venda", id, "Venda #" + id + " cancelada (total R$ " + v.total + ")", null, null);
         return v;
     }
     public record VendaResumo(Long id, LocalDateTime data, BigDecimal total, String status, String cpf) {}
@@ -98,6 +101,9 @@ public class VendaResource {
     public java.util.Map<String, Object> fechar(Fechamento f) {
         BigDecimal esperado = Pagamento.getEntityManager().createQuery(
             "select coalesce(sum(p.valor),0) from PagamentoVenda p where p.meio='DINHEIRO' and p.venda.status='PAGA'", BigDecimal.class).getSingleResult();
-        return java.util.Map.of("registrado", true, "diferenca", f.contadoDinheiro().subtract(esperado)); // expor só ao gerente
+        BigDecimal dif = f.contadoDinheiro().subtract(esperado);
+        // fechamento cego: a diferença vai só para a trilha de auditoria (tela do gerente), nunca para o operador
+        auditor.registrar("CADASTRO", "Fechamento de caixa", null, "Contado R$ " + f.contadoDinheiro() + " | esperado R$ " + esperado + " | diferença R$ " + dif, null, null);
+        return java.util.Map.of("registrado", true);
     }
 }

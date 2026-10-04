@@ -6,8 +6,9 @@ title Fruteira - Launcher
 if not exist ".env" ( echo [ERRO] Arquivo .env nao encontrado ^(copie de .env.example^) & pause & exit /b 1 )
 for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do set "%%A=%%B"
 if "%APP_ENV%"=="" set "APP_ENV=desenvolvimento"
-if /i not "%APP_ENV%"=="desenvolvimento" if /i not "%APP_ENV%"=="producao" ( echo [ERRO] APP_ENV invalido: %APP_ENV% ^(use desenvolvimento ou producao^) & pause & exit /b 1 )
-echo Ambiente: %APP_ENV%
+if "%USE_NGINX%"=="" set "USE_NGINX=false"
+if /i not "%APP_ENV%"=="desenvolvimento" if /i not "%APP_ENV%"=="producao" ( echo [ERRO] APP_ENV invalido: %APP_ENV% & pause & exit /b 1 )
+echo Ambiente: %APP_ENV%  ^(nginx/HTTPS: %USE_NGINX%^)
 
 for %%C in (java mvn node npm) do (
   where %%C >nul 2>nul || ( echo [ERRO] %%C nao encontrado no PATH & pause & exit /b 1 )
@@ -34,15 +35,21 @@ where docker >nul 2>nul || ( echo [ERRO] docker nao encontrado no PATH & pause &
 echo %DB_PASS% | findstr /b /i "troque" >nul && ( echo [ERRO] Defina uma DB_PASS segura no .env & pause & exit /b 1 )
 echo %KEYCLOAK_ADMIN_PASSWORD% | findstr /b /i "troque" >nul && ( echo [ERRO] Defina KEYCLOAK_ADMIN_PASSWORD segura no .env & pause & exit /b 1 )
 echo %KEYCLOAK_DB_PASS% | findstr /b /i "troque" >nul && ( echo [ERRO] Defina KEYCLOAK_DB_PASS segura no .env & pause & exit /b 1 )
+set "PERFIL="
+if /i not "%USE_NGINX%"=="true" goto prod_build
 echo %FRONT_DOMAIN%%KEYCLOAK_DOMAIN% | findstr /i "exemplo" >nul && ( echo [ERRO] Troque FRONT_DOMAIN/KEYCLOAK_DOMAIN pelos dominios reais no .env & pause & exit /b 1 )
-if not exist "nginx\certs\live\fruteira\fullchain.pem" ( echo [ERRO] Sem certificado TLS. Rode ssl.bat letsencrypt ^(ou ssl.bat local para testes^) & pause & exit /b 1 )
+if not exist "nginx\certs\live\fruteira\fullchain.pem" ( echo [ERRO] Sem certificado TLS. Rode ssl.bat letsencrypt ^(ou ssl.bat local^) & pause & exit /b 1 )
+set "PERFIL=--profile nginx"
+
+:prod_build
+if /i not "%USE_NGINX%"=="true" echo Producao local SEM HTTPS ^(USE_NGINX=false^). Para HTTPS real use USE_NGINX=true no .env.
 echo Gerando o front ^(dist^)...
 pushd pdv-web
 if not exist node_modules call npm install
 call npm run build || ( popd & echo [ERRO] Build do front falhou & pause & exit /b 1 )
 popd
-echo Subindo nginx ^(HTTPS^), Keycloak e PostgreSQL...
-docker compose -f docker-compose.prod.yml up -d || ( pause & exit /b 1 )
+echo Subindo PostgreSQL e Keycloak...
+docker compose -f docker-compose.prod.yml %PERFIL% up -d || ( pause & exit /b 1 )
 timeout /t 30 /nobreak >nul
 echo Compilando e iniciando microsservicos ^(producao^)...
 for %%S in (catalogo-service:8081 estoque-service:8082 vendas-service:8083 retaguarda-service:8084) do (
@@ -50,8 +57,15 @@ for %%S in (catalogo-service:8081 estoque-service:8082 vendas-service:8083 retag
     start "%%N :%%O" cmd /k "cd /d %~dp0%%N && mvn -q package -DskipTests && java -jar target\quarkus-app\quarkus-run.jar"
   )
 )
+if /i "%USE_NGINX%"=="true" goto abrir_https
+start "pdv-web :5173" cmd /k "cd /d %~dp0pdv-web && npx vite preview --host --port 5173"
 timeout /t 60 /nobreak >nul
-start https://%FRONT_DOMAIN%
+start %FRONT_URL%
+goto msg_prod
+:abrir_https
+timeout /t 60 /nobreak >nul
+start %FRONT_URL%
+:msg_prod
 echo.
 echo Login via Keycloak: %KEYCLOAK_URL% ^(usuarios gerente/supervisor/operador, senha temporaria trocar123^)
 

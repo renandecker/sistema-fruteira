@@ -12,6 +12,7 @@ import org.eclipse.microprofile.rest.client.inject.RestClient;
 @Path("/estoque") @Produces(MediaType.APPLICATION_JSON) @Consumes(MediaType.APPLICATION_JSON)
 public class EstoqueResource {
     @Inject @RestClient CatalogoClient catalogo;
+    @Inject Auditor auditor;
 
     public record Entrada(Long produtoId, BigDecimal qtdEmbalagem, BigDecimal fatorConversao, BigDecimal custoTotal, String documento) {}
     public record Baixa(Long produtoId, BigDecimal quantidade, Tipo tipo, String motivo) {}
@@ -34,6 +35,7 @@ public class EstoqueResource {
         s.quantidade = novaQtd;
         mov(e.produtoId(), Tipo.ENTRADA, qtdVenda, custoUnit, e.documento());
         catalogo.custo(e.produtoId(), s.custoMedio);
+        auditor.registrar("CADASTRO", "Entrada de estoque", e.produtoId(), "Entrada de " + qtdVenda + " (doc: " + e.documento() + "), custo total R$ " + e.custoTotal(), null, e);
         return s;
     }
     /** Baixa por venda, perda, avaria ou transformação */
@@ -42,6 +44,8 @@ public class EstoqueResource {
         Saldo s = saldo(b.produtoId());
         s.quantidade = s.quantidade.subtract(b.quantidade());
         mov(b.produtoId(), b.tipo(), b.quantidade().negate(), s.custoMedio, b.motivo());
+        if (b.tipo() == Tipo.PERDA || b.tipo() == Tipo.AVARIA)   // vendas e estornos são automáticos: não entram na auditoria
+            auditor.registrar("BAIXA", "Estoque (" + b.tipo().name().toLowerCase() + ")", b.produtoId(), "Baixa de " + b.quantidade() + " por " + b.tipo().name().toLowerCase() + (b.motivo() == null || b.motivo().isBlank() ? "" : ": " + b.motivo()), null, b);
         return s;
     }
     /** Fracionamento: abacaxi inteiro -> bandeja picada */
@@ -56,6 +60,7 @@ public class EstoqueResource {
         out.quantidade = nova;
         mov(p.insumoId(), Tipo.PRODUCAO_SAIDA, p.qtdInsumo().negate(), in.custoMedio, "produção");
         mov(p.produtoId(), Tipo.PRODUCAO_ENTRADA, p.qtdProduto(), out.custoMedio, "produção");
+        auditor.registrar("EDICAO", "Produção/fracionamento", p.produtoId(), "Produção: " + p.qtdInsumo() + " do insumo #" + p.insumoId() + " viraram " + p.qtdProduto() + " do produto #" + p.produtoId(), null, p);
     }
     @GET @Path("/{produtoId}") public Saldo consulta(@PathParam("produtoId") Long id) { return saldo(id); }
 

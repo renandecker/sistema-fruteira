@@ -6,7 +6,7 @@ import org.eclipse.microprofile.rest.client.annotation.RegisterClientHeaders;
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 
 public class Clients {
-    public record ProdutoDTO(Long id, String nome, String unidade, BigDecimal precoVarejo, BigDecimal precoAtacado, BigDecimal precoPromocional, BigDecimal custoMedio) {
+    public record ProdutoDTO(Long id, String nome, String unidade, BigDecimal precoVarejo, BigDecimal precoAtacado, BigDecimal precoPromocional, BigDecimal custoMedio, Boolean ativo) {
         public BigDecimal preco(boolean atacado) {
             if (precoPromocional != null) return precoPromocional;
             return atacado && precoAtacado != null ? precoAtacado : precoVarejo;

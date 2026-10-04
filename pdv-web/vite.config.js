@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 // Lê o .env da raiz do projeto (APP_ENV, KEYCLOAK_*)
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '..', '')
-  const alvo = (porta, base) => ({ target: `http://localhost:${porta}`, rewrite: p => p.replace(base, '') })
+  const alvo = (porta, base) => ({ target: `http://127.0.0.1:${porta}`, rewrite: p => p.replace(base, '') })
   const proxy = {
     '/api/catalogo': alvo(8081, '/api/catalogo'), '/api/estoque': alvo(8082, '/api/estoque'),
     '/api/vendas': alvo(8083, '/api/vendas'), '/api/retaguarda': alvo(8084, '/api/retaguarda'),

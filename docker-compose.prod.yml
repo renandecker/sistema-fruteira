@@ -1,12 +1,13 @@
-# Infra de produção: nginx (HTTPS) + Keycloak + PostgreSQL. Variáveis vindas do .env.
+# Infra de produção: Keycloak + PostgreSQL (+ nginx/HTTPS opcional: docker compose --profile nginx ...). Variáveis vindas do .env.
 # Os microsserviços Quarkus rodam no host (iniciar.sh/.bat) e o nginx os alcança via host.docker.internal.
 services:
   nginx:
     image: nginx:1.27-alpine
+    profiles: ["nginx"]                      # só sobe com USE_NGINX=true
     ports: ["80:80", "443:443"]
     environment:
-      FRONT_DOMAIN: ${FRONT_DOMAIN:?defina FRONT_DOMAIN no .env}
-      KEYCLOAK_DOMAIN: ${KEYCLOAK_DOMAIN:?defina KEYCLOAK_DOMAIN no .env}
+      FRONT_DOMAIN: ${FRONT_DOMAIN:-}
+      KEYCLOAK_DOMAIN: ${KEYCLOAK_DOMAIN:-}
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes:
       - ./nginx/templates:/etc/nginx/templates:ro
@@ -26,10 +27,10 @@ services:
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASS:?defina KEYCLOAK_DB_PASS no .env}
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?defina KEYCLOAK_ADMIN_PASSWORD no .env}
-      KC_HOSTNAME: https://${KEYCLOAK_DOMAIN}     # URL pública (emissor dos tokens)
-      KC_HTTP_ENABLED: "true"                     # TLS termina no nginx
+      KC_HOSTNAME: ${KEYCLOAK_URL:-http://localhost:8180}   # URL pública (emissor dos tokens)
+      KC_HTTP_ENABLED: "true"                     # com nginx, o TLS termina nele
       KC_PROXY_HEADERS: xforwarded
-      FRONT_DOMAIN: ${FRONT_DOMAIN}               # usado nos redirectUris do realm
+      FRONT_URL: ${FRONT_URL:-http://localhost:5173}       # usado nos redirectUris do realm
     ports: ["127.0.0.1:8180:8080"]                # só local; o público passa pelo nginx
     volumes: ["./keycloak:/opt/keycloak/data/import:ro"]
     depends_on: [keycloak-db]

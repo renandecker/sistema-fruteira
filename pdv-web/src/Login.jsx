@@ -4,22 +4,30 @@ const sha = async s => { try { const b = await crypto.subtle.digest('SHA-256', n
 
 export default function Login({ onLogin }) {
   const [login, setLogin] = useState(''); const [senha, setSenha] = useState(''); const [erro, setErro] = useState(''); const [load, setLoad] = useState(false)
+
   const entrar = async e => {
     e.preventDefault(); setLoad(true); setErro('')
-    const id = login.trim().toLowerCase()
+    const id = login.trim().toLowerCase(); let motivo = ''
     try {
       const r = await fetch('/api/retaguarda/usuarios/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login: id, senha }) })
-      if (r.status === 403 || r.status === 401) return setErro('Usuário ou senha inválidos')
-      if (!r.ok) throw new TypeError('serviço indisponível')
-      const u = await r.json()
-      localStorage.setItem('login-cache:' + id, JSON.stringify({ h: await sha(id + ':' + senha), u })) // permite entrar offline neste computador
-      onLogin(u)
-    } catch {
-      const c = JSON.parse(localStorage.getItem('login-cache:' + id) || 'null')
-      if (c && c.h === await sha(id + ':' + senha)) onLogin({ ...c.u, offline: true })
-      else setErro('Serviço indisponível e este usuário nunca entrou neste computador')
-    } finally { setLoad(false) }
+      if (r.status === 401 || r.status === 403) { setLoad(false); return setErro('Usuário ou senha inválidos') }
+      if (r.ok) {
+        const u = await r.json()
+        localStorage.setItem('login-cache:' + id, JSON.stringify({ h: await sha(id + ':' + senha), u })) // permite entrar offline neste computador
+        setLoad(false); return onLogin(u)
+      }
+      motivo = r.status >= 500
+        ? `o retaguarda-service (porta 8084) não respondeu (HTTP ${r.status}) — confira se ele está rodando e veja logs/retaguarda-service.log`
+        : `o serviço de login respondeu HTTP ${r.status}`
+    } catch { motivo = 'não foi possível conectar ao servidor' }
+
+    // sem o serviço de login: tenta o cache deste computador
+    const c = JSON.parse(localStorage.getItem('login-cache:' + id) || 'null')
+    if (c && c.h === await sha(id + ':' + senha)) { setLoad(false); return onLogin({ ...c.u, offline: true }) }
+    setErro(`Login indisponível: ${motivo}.` + (c ? ' A senha informada difere da usada no último acesso a este computador.' : ' Este usuário ainda não entrou neste computador, por isso não há login offline.'))
+    setLoad(false)
   }
+
   return (
     <div className="login-bg">
       <form className="login-card" onSubmit={entrar}>

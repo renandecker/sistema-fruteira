@@ -34,7 +34,16 @@ export default function PDV() {
   // Atalho de teclado: digitar o PLU + Enter; F2 = pagamento
   useEffect(() => {
     const h = e => {
-      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return
+      const emCampo = ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)
+      if (e.ctrlKey && !e.altKey && !e.metaKey) {          // Ctrl + tecla do produto (AltGr = Ctrl+Alt é ignorado)
+        if (e.repeat || pagando) return
+        const k = e.key.length === 1 ? e.key.toUpperCase() : ''
+        if (!k || (emCampo && 'ACVXZY'.includes(k))) return   // não rouba copiar/colar dentro dos campos
+        const p = produtos.find(x => x.atalho === k)
+        if (p) { e.preventDefault(); adicionar(p) }
+        return
+      }
+      if (emCampo) return
       if (/^\d$/.test(e.key)) setPlu(x => x + e.key)
       if (e.key === 'Enter' && plu) { const p = produtos.find(x => x.plu === +plu); p ? adicionar(p) : (setMsg('PLU inválido'), setPlu('')) }
       if (e.key === 'F2' && itens.length) setPagando(true)
@@ -59,11 +68,12 @@ export default function PDV() {
           <span className="peso">{balanca.peso.toFixed(3)} kg</span>
         </header>
         {msg && <div className="msg">{msg}</div>}
+        <div style={{ padding: '4px 14px' }}><small>Atalhos: PLU + Enter · Ctrl + tecla do produto · F2 pagar</small></div>
         <div className="grid">
           {produtos.map(p => (
             <button key={p.id} className="card" onClick={() => adicionar(p)}>
               {p.fotoUrl ? <img src={p.fotoUrl} alt="" width="80" height="80"/> : <div className="emoji">🥬</div>}
-              <div><span className="plu-tag">{p.plu}</span> {p.nome}</div>
+              <div><span className="plu-tag">{p.plu}</span>{p.atalho && <span className="atalho-tag">Ctrl+{p.atalho}</span>} {p.nome}</div>
               <div className="preco">{p.precoPromocional ? <s>{brl(p.precoVarejo)}</s> : null} {brl(preco(p))}/{p.unidade}</div>
             </button>))}
         </div>
