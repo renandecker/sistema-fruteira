@@ -1,0 +1,57 @@
+# Infra de produção: nginx (HTTPS) + Keycloak + PostgreSQL. Variáveis vindas do .env.
+# Os microsserviços Quarkus rodam no host (iniciar.sh/.bat) e o nginx os alcança via host.docker.internal.
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports: ["80:80", "443:443"]
+    environment:
+      FRONT_DOMAIN: ${FRONT_DOMAIN:?defina FRONT_DOMAIN no .env}
+      KEYCLOAK_DOMAIN: ${KEYCLOAK_DOMAIN:?defina KEYCLOAK_DOMAIN no .env}
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - ./nginx/snippets:/etc/nginx/snippets:ro
+      - ./nginx/certs:/etc/letsencrypt:ro
+      - ./pdv-web/dist:/usr/share/nginx/html:ro
+    depends_on: [keycloak]
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: start --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASS:?defina KEYCLOAK_DB_PASS no .env}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?defina KEYCLOAK_ADMIN_PASSWORD no .env}
+      KC_HOSTNAME: https://${KEYCLOAK_DOMAIN}     # URL pública (emissor dos tokens)
+      KC_HTTP_ENABLED: "true"                     # TLS termina no nginx
+      KC_PROXY_HEADERS: xforwarded
+      FRONT_DOMAIN: ${FRONT_DOMAIN}               # usado nos redirectUris do realm
+    ports: ["127.0.0.1:8180:8080"]                # só local; o público passa pelo nginx
+    volumes: ["./keycloak:/opt/keycloak/data/import:ro"]
+    depends_on: [keycloak-db]
+    restart: unless-stopped
+
+  keycloak-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASS}
+    volumes: [kcdata:/var/lib/postgresql/data]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: fruteira
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASS:?defina DB_PASS no .env}
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    restart: unless-stopped
+
+volumes: { pgdata: {}, kcdata: {} }

@@ -32,6 +32,65 @@ Sem balança física: no console do navegador `__simulaPeso(0.350)`.
 | Fechamento de caixa cego | `POST /vendas/caixa/fechamento` |
 | Fila offline com sincronização | `offline.js` |
 
+## Ambientes (`.env`)
+Copie `.env.example` para `.env` e escolha `APP_ENV`:
+
+| | `desenvolvimento` | `producao` |
+|---|---|---|
+| Login | tela local (gerente/gerente, supervisor/supervisor, operador/operador) | **Keycloak (OIDC + PKCE)** |
+| APIs Quarkus | abertas (OIDC desligado) | exigem Bearer token; **perfil validado por rota** |
+| Banco | H2 em arquivo (`data/`) | PostgreSQL (`DB_URL`, `DB_USER`, `DB_PASS`) |
+| Dados de exemplo | sim | não |
+| Execução | `quarkus:dev` + Vite | jars (`mvn package`) + front buildado servido pelo **nginx (HTTPS)** |
+| Docker | não precisa | nginx + Keycloak + PostgreSQL (`docker-compose.prod.yml`) |
+
+`iniciar.sh` / `iniciar.bat` leem o `.env` e fazem o resto. Em produção eles recusam senhas que comecem com `troque`.
+
+### Produção: como funciona
+1. **Keycloak** sobe com o realm `fruteira` importado de `keycloak/fruteira-realm.json`: roles `gerente`, `supervisor`, `operador`, client público `pdv-web` (PKCE) e client `fruteira-api` (bearer-only). Usuários iniciais `gerente`/`supervisor`/`operador` com senha temporária `trocar123` (o Keycloak exige trocar no 1º acesso).
+2. **Front** (`src/auth.js`): `login-required` no Keycloak, anexa `Authorization: Bearer` em todo `/api/*`, renova o token e define o perfil pela role mais alta. Em `Usuários e perfis`, abre o console do Keycloak.
+3. **Quarkus** (`application.properties`, bloco `%prod`): `quarkus-oidc` valida o token e lê as roles de `realm_access/roles`. As políticas por rota/método ficam em `quarkus.http.auth.permission.*`:
+
+| Serviço | Operador | Supervisor | Gerente |
+|---|---|---|---|
+| catalogo | ler produtos | criar/alterar produtos, preços, desconto | — |
+| estoque | baixa (venda), consultar saldo | entrada, produção | relatórios de perdas |
+| vendas | vender, fechar caixa | listar vendas, cancelar | relatórios (ABC, DRE, sugestão) |
+| retaguarda | CPF/cashback, emitir NFC-e | clientes, NFC-e | fornecedores, cotações, contas |
+
+   O token do usuário é repassado nas chamadas entre microsserviços (`propagateHeaders=Authorization`). Qualquer rota não listada exige apenas estar autenticado.
+
+### HTTPS com nginx (produção)
+```
+Internet ──443──> nginx ──┬─ https://FRONT_DOMAIN      -> pdv-web/dist (SPA) e /api/<serviço>/ -> Quarkus no host (8081-8084)
+                          └─ https://KEYCLOAK_DOMAIN   -> Keycloak (contêiner)
+```
+1. **DNS:** aponte `FRONT_DOMAIN` (ex.: `loja.seudominio.com.br`) e `KEYCLOAK_DOMAIN` (ex.: `auth.seudominio.com.br`) para o IP do servidor e libere as portas **80 e 443**.
+2. **`.env`:** preencha `FRONT_DOMAIN`, `KEYCLOAK_DOMAIN`, `LE_EMAIL`, `KEYCLOAK_URL=https://<KEYCLOAK_DOMAIN>`, `FRONT_URL=https://<FRONT_DOMAIN>` e as senhas. O `iniciar` confere se as URLs batem com os domínios e recusa domínios `exemplo`.
+3. **Certificado:** `./ssl.sh letsencrypt` (Windows: `ssl.bat letsencrypt`). Um certificado único cobre os dois domínios. Renovação: agende `./ssl.sh renovar` (cron semanal); o nginx pausa por alguns segundos.
+4. **Subir:** `./iniciar.sh` (build do front → nginx/Keycloak/PostgreSQL → jars).
+5. **Redirect URIs:** o realm usa `https://${FRONT_DOMAIN}/*` (placeholder do Keycloak, preenchido pelo `.env`). **A importação só ocorre na criação do realm.** Se já subiu o Keycloak antes de trocar o domínio, ajuste em *Clients → pdv-web* no console ou apague o volume (`docker compose -f docker-compose.prod.yml down -v`, apaga os dados do Keycloak).
+
+**Teste local com HTTPS:** use domínios como `loja.local` / `auth.local`, rode `./ssl.sh local`, adicione-os ao arquivo *hosts* apontando para `127.0.0.1`, defina `OIDC_TLS_VERIFICATION=none` no `.env` e aceite o aviso do navegador.
+
+**Endurecimento recomendado:**
+- Bloqueie no firewall as portas 8081–8084 e 5432 (os serviços escutam em todas as interfaces; só o nginx deve acessá-los).
+- Restrinja `/admin/` do Keycloak a IPs conhecidos (bloco comentado em `nginx/templates/default.conf.template`).
+- Troque as senhas temporárias `trocar123` e as do `.env`; faça backup dos volumes `pgdata` e `kcdata`.
+
+**Limitações conhecidas:** `/estoque/baixa` é liberada ao operador (necessária para vendas), então a mesma rota serve a perdas lançadas por quem tiver acesso; o login offline com cache local só existe em desenvolvimento.
+
+## Login (desenvolvimento)
+Usuários criados na primeira execução do retaguarda-service (usuário = senha = perfil):
+
+| Usuário | Senha | Perfil |
+|---|---|---|
+| gerente | gerente | vê todas as telas |
+| supervisor | supervisor | cadastros, estoque, NFC-e, etiquetas, caixa |
+| operador | operador | PDV, fechamento de caixa e consulta de preço |
+
+**Troque as senhas** em Configurações → Usuários e perfis. Após um login bem-sucedido o computador guarda um hash local, permitindo entrar com a rede fora do ar (modo offline do PDV). O controle por perfil hoje é feito no front; o backend ainda não valida permissões.
+
 ## Telas do menu (todas ativas)
 | Menu | Backend | Observação |
 |---|---|---|

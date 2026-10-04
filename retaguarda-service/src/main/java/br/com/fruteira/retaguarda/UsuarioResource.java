@@ -11,12 +11,28 @@ import java.util.*;
 @Path("/usuarios") @Produces(MediaType.APPLICATION_JSON) @Consumes(MediaType.APPLICATION_JSON)
 public class UsuarioResource {
     public record Pin(String pin) {}
+    public record Login(String login, String senha) {}
+
+    /** Login por usuário e senha (a senha é guardada com hash) */
+    @POST @Path("/login")
+    public Map<String, String> login(Login l) {
+        Usuario u = (l.login() == null || l.senha() == null) ? null
+            : Usuario.find("login = ?1 and pinHash = ?2 and ativo = true", l.login().trim().toLowerCase(), hash(l.senha())).firstResult();
+        if (u == null) throw new ForbiddenException("Usuário ou senha inválidos");
+        return Map.of("nome", u.nome, "login", u.login, "perfil", u.perfil);
+    }
+    @POST @Path("/{id}/senha") @Transactional
+    public Usuario trocarSenha(@PathParam("id") Long id, @QueryParam("nova") String nova) {
+        if (nova == null || nova.length() < 4) throw new WebApplicationException("Senha mínima de 4 caracteres", 422);
+        Usuario u = Usuario.findById(id); if (u == null) throw new NotFoundException();
+        u.pinHash = hash(nova); return u;
+    }
 
     @GET public List<Usuario> listar() { return Usuario.listAll(); }
 
     @POST @Transactional public Usuario criar(Usuario u) {
-        if (u.pin == null || u.pin.length() < 4) throw new WebApplicationException("PIN mínimo de 4 dígitos", 422);
-        u.pinHash = hash(u.pin); u.persist(); return u;
+        if (u.pin == null || u.pin.length() < 4) throw new WebApplicationException("Senha mínima de 4 caracteres", 422);
+        u.login = u.login.trim().toLowerCase(); u.pinHash = hash(u.pin); u.persist(); return u;
     }
     @POST @Path("/{id}/ativo") @Transactional public Usuario ativo(@PathParam("id") Long id, @QueryParam("valor") boolean valor) {
         Usuario u = Usuario.findById(id); if (u == null) throw new NotFoundException(); u.ativo = valor; return u;

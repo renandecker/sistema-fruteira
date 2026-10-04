@@ -1,0 +1,55 @@
+# As variáveis ${FRONT_DOMAIN} e ${KEYCLOAK_DOMAIN} são preenchidas pelo contêiner a partir do .env.
+
+# ---------- HTTP -> HTTPS ----------
+server {
+    listen 80 default_server;
+    server_name ${FRONT_DOMAIN} ${KEYCLOAK_DOMAIN};
+    return 301 https://$host$request_uri;
+}
+
+# ---------- Front (React) + APIs ----------
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${FRONT_DOMAIN};
+    include /etc/nginx/snippets/tls.conf;
+
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://${KEYCLOAK_DOMAIN} https://api.open-meteo.com; frame-src https://${KEYCLOAK_DOMAIN}; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://${KEYCLOAK_DOMAIN}" always;
+
+    root /usr/share/nginx/html;
+    index index.html;
+    client_max_body_size 5m;
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+
+    location /assets/        { expires 1y; try_files $uri =404; }   # arquivos com hash no nome
+    location = /index.html   { expires -1; }
+    location /               { try_files $uri /index.html; }        # SPA
+
+    # Nunca expor os endpoints internos do Quarkus (/q/swagger-ui, /q/health, ...)
+    location ~ ^/api/[^/]+/q/ { return 404; }
+
+    # Microsserviços Quarkus rodando no host (a barra final remove o prefixo /api/<serviço>)
+    location /api/catalogo/    { proxy_pass http://host.docker.internal:8081/; include /etc/nginx/snippets/proxy.conf; }
+    location /api/estoque/     { proxy_pass http://host.docker.internal:8082/; include /etc/nginx/snippets/proxy.conf; }
+    location /api/vendas/      { proxy_pass http://host.docker.internal:8083/; include /etc/nginx/snippets/proxy.conf; }
+    location /api/retaguarda/  { proxy_pass http://host.docker.internal:8084/; include /etc/nginx/snippets/proxy.conf; }
+}
+
+# ---------- Keycloak ----------
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${KEYCLOAK_DOMAIN};
+    include /etc/nginx/snippets/tls.conf;
+
+    proxy_buffer_size 128k;
+    proxy_buffers 4 256k;
+    proxy_busy_buffers_size 256k;
+
+    # Recomendado: restringir o console administrativo a IPs da loja/escritório
+    # location /admin/ { allow 203.0.113.10; deny all; proxy_pass http://keycloak:8080; include /etc/nginx/snippets/proxy.conf; }
+
+    location / { proxy_pass http://keycloak:8080; include /etc/nginx/snippets/proxy.conf; }
+}

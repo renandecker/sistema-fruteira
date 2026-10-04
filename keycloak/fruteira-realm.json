@@ -1,0 +1,27 @@
+{
+  "realm": "fruteira",
+  "enabled": true,
+  "displayName": "Fruteira Conventos",
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "roles": { "realm": [
+    { "name": "gerente", "description": "Acesso total" },
+    { "name": "supervisor", "description": "Cadastros, estoque, NFC-e, cancelamentos" },
+    { "name": "operador", "description": "PDV e consulta de preço" } ] },
+  "clients": [
+    { "clientId": "pdv-web", "name": "PDV Web", "enabled": true, "publicClient": true,
+      "standardFlowEnabled": true, "directAccessGrantsEnabled": false,
+      "redirectUris": ["https://${FRONT_DOMAIN}/*"], "webOrigins": ["https://${FRONT_DOMAIN}"],
+      "attributes": { "pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "https://${FRONT_DOMAIN}/*" } },
+    { "clientId": "fruteira-api", "name": "Fruteira API (microsserviços)", "enabled": true, "bearerOnly": true }
+  ],
+  "users": [
+    { "username": "gerente", "enabled": true, "firstName": "Gerente", "lastName": "Fruteira", "email": "gerente@fruteira.local", "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "trocar123", "temporary": true }], "realmRoles": ["gerente"] },
+    { "username": "supervisor", "enabled": true, "firstName": "Supervisor", "lastName": "Fruteira", "email": "supervisor@fruteira.local", "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "trocar123", "temporary": true }], "realmRoles": ["supervisor"] },
+    { "username": "operador", "enabled": true, "firstName": "Operador", "lastName": "Fruteira", "email": "operador@fruteira.local", "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "trocar123", "temporary": true }], "realmRoles": ["operador"] }
+  ]
+}
