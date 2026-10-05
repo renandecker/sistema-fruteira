@@ -42,8 +42,12 @@ export function Produtos() {
   const desativar = p => window.confirm(`Desativar "${p.nome}"?\nEle some do PDV e das vendas, mas o histórico e a auditoria são mantidos (o PLU continua reservado). Somente o gerente vê e pode reativar.`)
     && api(`/api/catalogo/produtos/${p.id}`, { method: 'DELETE' }).then(() => { setMsg(`"${p.nome}" desativado`); recarregar() }).catch(erro)
   const reativar = p => post(`/api/catalogo/produtos/${p.id}/reativar`).then(() => { setMsg(`"${p.nome}" reativado`); recarregar() }).catch(erro)
+  const importar = () => window.confirm('Cadastrar as frutas, legumes, verduras e temperos mais comuns (69 itens)?\nO que já existe (mesmo nome) é mantido. Os preços são só referência: revise depois.')
+    && post('/api/catalogo/produtos/pre-cadastro').then(r => { setMsg(`Pré-cadastro concluído: ${r.produtosNovos} produto(s) novo(s) e ${r.categoriasNovas} categoria(s) nova(s); ${r.produtosJaExistiam} já existiam. Revise os preços!`); recarregar() }).catch(erro)
   return <Pagina titulo="🍎 Produtos e preços">
     <Aviso m={msg} />
+    <div className="barra"><button className="btn sec" onClick={importar}>📥 Importar frutas e verduras mais comuns (69 itens)</button>
+      <small>Cadastra categorias, produtos, perda média, NCM sugerido e imagem — o mesmo conteúdo do script SQL. Pode repetir sem duplicar.</small></div>
     <NovoProduto onSave={recarregar} usados={usados} categorias={categorias} />
     <div className="barra"><b>Margem por categoria/safra:</b>
       <select value={cat} onChange={e => setCat(e.target.value)}><option value="">Categoria…</option>{cats.map(c => <option key={c}>{c}</option>)}</select>
@@ -70,23 +74,40 @@ export function Produtos() {
 }
 
 export function Entrada() {
-  const [lista] = useProdutos(); const [f, setF] = useState({ produtoId: '', qtdEmbalagem: 1, fatorConversao: 20, custoTotal: 0, documento: '' })
+  const [lista] = useProdutos(); const [fornecedores] = useLista('/api/retaguarda/fornecedores'); const [hist, recHist] = useLista('/api/estoque/estoque/entradas?limit=30')
+  const [f, setF] = useState({ produtoId: '', fornecedorId: '', qtdEmbalagem: 1, fatorConversao: 20, custoTotal: 0, documento: '', cotacao: true })
   const [res, setRes] = useState(null); const [msg, setMsg] = useState('')
   const set = k => e => setF({ ...f, [k]: e.target.value })
   const qtd = f.qtdEmbalagem * f.fatorConversao
-  const enviar = () => post('/api/estoque/estoque/entrada', { ...f, produtoId: +f.produtoId, qtdEmbalagem: +f.qtdEmbalagem, fatorConversao: +f.fatorConversao, custoTotal: +f.custoTotal })
-    .then(r => { setRes(r); setMsg('') }).catch(e => setMsg(String(e)))
+  const forn = fornecedores.find(x => String(x.id) === String(f.fornecedorId)); const prod = lista.find(p => String(p.id) === String(f.produtoId))
+  const nomeProd = id => lista.find(p => p.id === id)?.nome ?? `#${id}`
+  const enviar = () => post('/api/estoque/estoque/entrada', { produtoId: +f.produtoId, qtdEmbalagem: +f.qtdEmbalagem, fatorConversao: +f.fatorConversao, custoTotal: +f.custoTotal,
+      documento: f.documento, fornecedorId: forn ? forn.id : null, fornecedor: forn ? forn.nome : null })
+    .then(async r => {
+      setRes(r); setMsg('')
+      // com fornecedor, grava também a cotação (histórico de preços pago por fornecedor)
+      if (forn && f.cotacao && prod && qtd > 0) await post('/api/retaguarda/cotacoes', { produtoNome: prod.nome, fornecedor: forn.nome, preco: +(f.custoTotal / qtd).toFixed(4) }).catch(() => {})
+      recHist()
+    }).catch(e => setMsg(String(e) || 'Não foi possível registrar a entrada'))
   return <Pagina titulo="📦 Entrada de mercadoria">
     <Aviso m={msg} />
     <div className="form">
+      <label>Fornecedor <small>({fornecedores.length} cadastrado(s) — cadastre em Cadastros → Fornecedores)</small>
+        <select value={f.fornecedorId} onChange={set('fornecedorId')}><option value="">Não informado</option>
+          {fornecedores.map(x => <option key={x.id} value={x.id}>{x.nome}{x.tipo ? ` · ${x.tipo.replace('_', ' ').toLowerCase()}` : ''}</option>)}</select></label>
       <label>Produto<SelProduto lista={lista} v={f.produtoId} onChange={v => setF({ ...f, produtoId: v })} /></label>
       <label>Qtd. de embalagens (caixas/fardos)<input type="number" value={f.qtdEmbalagem} onChange={set('qtdEmbalagem')} /></label>
       <label>Fator de conversão (kg ou un. por embalagem)<input type="number" value={f.fatorConversao} onChange={set('fatorConversao')} /></label>
       <label>Custo total da compra (R$)<input type="number" value={f.custoTotal} onChange={set('custoTotal')} /></label>
       <label>Documento / NF<input value={f.documento} onChange={set('documento')} /></label>
+      {forn && <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><input type="checkbox" checked={f.cotacao} onChange={e => setF({ ...f, cotacao: e.target.checked })} /> Registrar também a cotação (histórico de preços do fornecedor)</label>}
       <p>Entrará no estoque: <b>{qtd || 0}</b> · custo unitário: <b>{qtd ? brl(f.custoTotal / qtd) : '—'}</b></p>
       <button className="btn" disabled={!f.produtoId || !qtd} onClick={enviar}>Registrar entrada</button></div>
-    {res && <div className="msg">Entrada registrada. Saldo: <b>{res.quantidade}</b> · custo médio: <b>{brl(res.custoMedio)}</b></div>}
+    {res && <div className="msg">Entrada registrada{forn ? ` (${forn.nome})` : ''}. Saldo: <b>{res.quantidade}</b> · custo médio: <b>{brl(res.custoMedio)}</b></div>}
+    <h3>Últimas entradas</h3>
+    <table className="tab"><thead><tr><th>Data</th><th>Produto</th><th>Fornecedor</th><th>Documento</th><th>Quantidade</th><th>Custo unit.</th></tr></thead>
+      <tbody>{hist.map(h => <tr key={h.id}><td>{new Date(h.data).toLocaleString('pt-BR')}</td><td>{nomeProd(h.produtoId)}</td><td>{h.fornecedor || '—'}</td><td>{h.documento || '—'}</td><td>{h.quantidade}</td><td>{brl(h.custoUnitario)}</td></tr>)}</tbody></table>
+    {!hist.length && <p><small>Nenhuma entrada registrada ainda.</small></p>}
   </Pagina>
 }
 

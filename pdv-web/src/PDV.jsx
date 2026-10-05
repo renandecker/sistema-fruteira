@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { useBalanca } from './balanca.js'
 import { enfileirar, sincronizar } from './offline.js'
 import { ImagemProduto } from './catalogoImagens.jsx'
+import { PROD } from './auth.js'
 import { decodificarEtiqueta } from './etiqueta.js'
 
 const brl = n => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -19,7 +20,7 @@ let seq = 0
 export default function PDV() {
   const [produtos, setProdutos] = useState([]); const [categorias, setCategorias] = useState([]); const [ranking, setRanking] = useState({})
   const [itens, setItens] = useState([]); const [codigo, setCodigo] = useState(''); const [cpf, setCpf] = useState(''); const [pagando, setPagando] = useState(false)
-  const [msg, setMsg] = useState(''); const [aba, setAba] = useState(0); const [flash, setFlash] = useState(null)
+  const [msg, setMsg] = useState(''); const [aba, setAba] = useState(0); const [flash, setFlash] = useState(null); const [avisoPeso, setAvisoPeso] = useState(false)
   const balanca = useBalanca(); const fim = useRef(null); const campo = useRef(null); const bipCtx = useRef(null)
 
   const carregar = () => {
@@ -55,7 +56,10 @@ export default function PDV() {
   /** Lança o produto na venda. Retorna true se lançou. `extra.quantidade` vem de etiqueta EAN-13 com valor embutido. */
   function adicionar(p, extra = {}) {
     const porKg = p.unidade === 'KG'
-    if (porKg && !extra.quantidade && !(balanca.peso > 0)) { setMsg(`Coloque ${p.nome} na balança`); return false }
+    if (porKg && !extra.quantidade && !(balanca.peso > 0)) {   // produto por kg exige peso lido da balança
+      setMsg(`⚖️ ${p.nome} é vendido por kg: coloque na balança (peso lido automaticamente).${PROD ? '' : ' Em desenvolvimento use o campo 🧪 peso no topo.'}`)
+      setAvisoPeso(true); setTimeout(() => setAvisoPeso(false), 1800); return false
+    }
     const qtd = extra.quantidade ?? (porKg ? balanca.peso : 1)
     const orig = Number(p.precoVarejo), pr = preco(p), promo = p.precoPromocional != null && pr < orig
     const sub = +(qtd * pr).toFixed(2), bruto = +(qtd * orig).toFixed(2)
@@ -163,9 +167,11 @@ export default function PDV() {
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); lerCodigo(codigo) } else if (e.key === 'Escape') setCodigo('') }} />
           </label>
           {!balanca.conectada && <button className="btn sec" onClick={() => balanca.conectar().catch(() => setMsg('Falha na balança'))}>Conectar balança</button>}
-          <span className="peso">{balanca.peso.toFixed(3)} kg</span>
+          {!PROD && <label className="sim-peso" title="Somente em desenvolvimento: simula o peso da balança para testar produtos por kg"><span>🧪 peso (kg)</span>
+            <input type="number" step="0.05" min="0" placeholder="0,000" onChange={e => window.__simulaPeso(+e.target.value || 0)} /></label>}
+          <span className={`peso ${avisoPeso ? 'alerta' : ''}`}>{balanca.peso.toFixed(3)} kg</span>
         </header>
-        {msg && <div className="msg">{msg}</div>}
+        {msg && <div className="msg" role="status">{msg}</div>}
         <div className="abas">
           {abas.map((a, k) => <button key={a.id} className={k === idxAba ? 'on' : ''} onClick={() => setAba(k)}>{a.nome}</button>)}
           <small>F4 código de barras · Tab / Shift+Tab troca a aba · Ctrl + tecla do produto · F2 pagar</small>
@@ -174,7 +180,7 @@ export default function PDV() {
           {visiveis.map(p => {
             const promo = p.precoPromocional != null, n = noCarrinho[p.id], piscando = flash?.id === p.id
             return (
-              <button key={p.id + (piscando ? '-' + flash.n : '')} className={`card ${promo ? 'promo' : ''} ${n ? 'no-carrinho' : ''} ${piscando ? 'flash' : ''}`} onClick={() => adicionar(p)}>
+              <button key={p.id} className={`card ${promo ? 'promo' : ''} ${n ? 'no-carrinho' : ''} ${piscando ? (flash.n % 2 ? 'flash a' : 'flash b') : ''}`} onClick={() => adicionar(p)}>
                 {promo && <span className="ribbon">PROMO{p.descontoPct ? ` −${Number(p.descontoPct).toFixed(0)}%` : ''}</span>}
                 {n > 0 && <span className="qtd-badge" title="Linhas deste produto na venda atual">{n}</span>}
                 <div className="emoji"><ImagemProduto p={p} size={64} /></div>
@@ -210,29 +216,43 @@ const MEIOS = [
   { id: 'PIX', rot: 'PIX', tecla: 'F1' }, { id: 'DINHEIRO', rot: 'Dinheiro', tecla: 'F2' }, { id: 'CREDITO', rot: 'Crédito', tecla: 'F3' },
   { id: 'DEBITO', rot: 'Débito', tecla: 'F4' }, { id: 'VALE_ALIMENTACAO', rot: 'Vale-alimentação', tecla: 'F5' }, { id: 'VALE_REFEICAO', rot: 'Vale-refeição', tecla: 'F6' },
 ]
+const c2 = n => Math.round(n * 100), r2 = n => Math.round(n * 100) / 100
+const rotulo = id => MEIOS.find(m => m.id === id)?.rot ?? id
 
-/** Pagamento. Atalhos: F1–F6 (ou 1–6) forma de pagamento · F7 valor exato · F8/F9 notas sugeridas · Enter confirma · Esc volta */
+/** Pagamento em UMA ou MAIS formas (ex.: R$ 20 no PIX + o restante em dinheiro). O troco só existe para dinheiro.
+ *  Atalhos: F1–F6 (ou 1–6) forma · F7 restante · F8/F9 notas sugeridas · Enter adiciona/finaliza · Delete remove o último · Esc volta */
 function Pagamento({ total, desconto = 0, onOk, onCancel }) {
-  const [meio, setMeio] = useState('PIX'); const [recebido, setRecebido] = useState(total); const campo = useRef(null); const enviado = useRef(false)
-  const troco = meio === 'DINHEIRO' ? Math.max(0, recebido - total) : 0
-  const pode = meio !== 'DINHEIRO' || recebido >= total
-  const sugestoes = [...new Set([Math.ceil(total / 10) * 10, Math.ceil(total / 50) * 50, Math.ceil(total / 100) * 100])].filter(v => v > total).slice(0, 2)
+  const [pags, setPags] = useState([]); const [meio, setMeio] = useState('PIX'); const [valor, setValor] = useState(total)
+  const campo = useRef(null); const enviado = useRef(false)
+  const pago = pags.reduce((s, p) => s + c2(p.valor), 0)
+  const restante = (c2(total) - pago) / 100
+  const v = +valor || 0
+  const cobre = c2(v) >= c2(restante)
+  const aplicado = Math.min(v, restante)
+  const troco = meio === 'DINHEIRO' ? Math.max(0, r2(v - restante)) : 0
+  const pode = v > 0 && (meio === 'DINHEIRO' || c2(v) <= c2(restante))
+  const sugestoes = [...new Set([Math.ceil(restante / 10) * 10, Math.ceil(restante / 50) * 50, Math.ceil(restante / 100) * 100])].filter(x => x > restante).slice(0, 2)
+
+  const escolher = id => { setMeio(id); if (id !== 'DINHEIRO' && v > restante) setValor(restante) }   // só dinheiro pode passar do restante (troco)
+  const refazer = lista => { setPags(lista); setValor((c2(total) - lista.reduce((s, p) => s + c2(p.valor), 0)) / 100) }
   const confirmar = () => {
     if (!pode || enviado.current) return
-    enviado.current = true; setTimeout(() => { enviado.current = false }, 1500)     // evita duplo Enter
-    onOk([{ meio, valor: meio === 'DINHEIRO' ? recebido : total }])
+    const novo = { meio, valor: r2(aplicado) }       // dinheiro: grava o valor APLICADO à venda (o troco não entra no caixa)
+    if (cobre) { enviado.current = true; setTimeout(() => { enviado.current = false }, 1500); onOk([...pags, novo]) }
+    else refazer([...pags, novo])
   }
-  useEffect(() => { if (meio === 'DINHEIRO') { campo.current?.focus(); campo.current?.select() } }, [meio])
+  useEffect(() => { campo.current?.focus(); campo.current?.select() }, [meio, pags.length])
   useEffect(() => {
     const h = e => {
       const emInput = e.target.tagName === 'INPUT'
       const f = MEIOS.find(m => m.tecla === e.key)
-      if (f) { e.preventDefault(); setMeio(f.id); return }
-      if (e.key === 'F7') { e.preventDefault(); setMeio('DINHEIRO'); setRecebido(total); return }
-      if ((e.key === 'F8' || e.key === 'F9') && sugestoes[e.key === 'F8' ? 0 : 1]) { e.preventDefault(); setMeio('DINHEIRO'); setRecebido(sugestoes[e.key === 'F8' ? 0 : 1]); return }
+      if (f) { e.preventDefault(); escolher(f.id); return }
+      if (e.key === 'F7') { e.preventDefault(); setValor(restante); return }
+      if ((e.key === 'F8' || e.key === 'F9') && sugestoes[e.key === 'F8' ? 0 : 1]) { e.preventDefault(); setMeio('DINHEIRO'); setValor(sugestoes[e.key === 'F8' ? 0 : 1]); return }
       if (e.key === 'Escape') { e.preventDefault(); onCancel(); return }
       if (e.key === 'Enter') { e.preventDefault(); confirmar(); return }
-      if (!emInput && /^[1-6]$/.test(e.key)) setMeio(MEIOS[+e.key - 1].id)
+      if (!emInput && e.key === 'Delete' && pags.length) { e.preventDefault(); refazer(pags.slice(0, -1)); return }
+      if (!emInput && /^[1-6]$/.test(e.key)) escolher(MEIOS[+e.key - 1].id)
     }
     window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h)
   })
@@ -242,18 +262,22 @@ function Pagamento({ total, desconto = 0, onOk, onCancel }) {
         <img src="/logo.png" alt="" style={{ height: 48, borderRadius: 6 }} />
         <h2>Total {brl(total)}</h2>
         {desconto > 0 && <p className="eco">Você economizou {brl(desconto)} em promoções 🎉</p>}
-        <div className="meios">{MEIOS.map(m => <button key={m.id} className={m.id === meio ? 'on' : ''} onClick={() => setMeio(m.id)}><kbd>{m.tecla}</kbd> {m.rot}</button>)}</div>
-        {meio === 'PIX' && <div style={{ textAlign: 'center', margin: 12 }}>
+        {pags.length > 0 && <ul className="pags">{pags.map((p, k) => <li key={k}><span>{rotulo(p.meio)}</span><b>{brl(p.valor)}</b>
+          <button className="x-item" title="Remover este pagamento" onClick={() => refazer(pags.filter((_, i) => i !== k))}>×</button></li>)}</ul>}
+        <div className="falta">Pago: {brl(pago / 100)} · <b>Falta: {brl(restante)}</b></div>
+        <div className="meios">{MEIOS.map(m => <button key={m.id} className={m.id === meio ? 'on' : ''} onClick={() => escolher(m.id)}><kbd>{m.tecla}</kbd> {m.rot}</button>)}</div>
+        {meio === 'PIX' && <div style={{ textAlign: 'center', margin: 8 }}>
           {/* Troque o payload pelo "copia e cola" gerado pelo pagamento-service (PIX dinâmico via PSP) */}
-          <QRCodeSVG value={`PIX-DEMO|valor=${total.toFixed(2)}`} size={190} fgColor="#066b43" /><p>Aguardando confirmação…</p></div>}
-        {meio === 'DINHEIRO' && <div style={{ margin: '12px 0' }}>
-          <label>Recebido: <input ref={campo} type="number" step="0.01" value={recebido} onChange={e => setRecebido(+e.target.value)} style={{ fontSize: 22, width: 150 }} /></label>
-          <div style={{ fontSize: 22, margin: '8px 0' }}>Troco: <b style={{ color: pode ? 'var(--verde-escuro)' : 'var(--vermelho)' }}>{pode ? brl(troco) : 'valor insuficiente'}</b></div>
-          <div className="meios"><button onClick={() => setRecebido(total)}><kbd>F7</kbd> Exato</button>
-            {sugestoes.map((v, k) => <button key={v} onClick={() => setRecebido(v)}><kbd>F{8 + k}</kbd> {brl(v)}</button>)}</div></div>}
-        <div><button className="btn" disabled={!pode} onClick={confirmar}>Confirmar <kbd>Enter</kbd></button>{' '}
+          <QRCodeSVG value={`PIX-DEMO|valor=${aplicado.toFixed(2)}`} size={150} fgColor="#066b43" /><p style={{ margin: 4 }}>PIX de {brl(aplicado)} — aguardando confirmação…</p></div>}
+        <div style={{ margin: '10px 0' }}>
+          <label>{meio === 'DINHEIRO' ? 'Recebido' : 'Valor'} em {rotulo(meio)}: <input ref={campo} type="number" step="0.01" value={valor} onChange={e => setValor(e.target.value)} style={{ fontSize: 22, width: 150 }} /></label>
+          {meio === 'DINHEIRO' && <div style={{ fontSize: 22, margin: '6px 0' }}>Troco: <b style={{ color: pode ? 'var(--verde-escuro)' : 'var(--vermelho)' }}>{pode ? brl(troco) : 'valor inválido'}</b></div>}
+          {meio !== 'DINHEIRO' && v > restante && <div style={{ color: 'var(--vermelho)' }}>O valor passa do que falta ({brl(restante)}).</div>}
+          <div className="meios"><button onClick={() => setValor(restante)}><kbd>F7</kbd> Restante {brl(restante)}</button>
+            {meio === 'DINHEIRO' && sugestoes.map((x, k) => <button key={x} onClick={() => setValor(x)}><kbd>F{8 + k}</kbd> {brl(x)}</button>)}</div></div>
+        <div><button className="btn" disabled={!pode} onClick={confirmar}>{cobre ? 'Finalizar venda' : 'Adicionar pagamento'} <kbd>Enter</kbd></button>{' '}
           <button className="btn sec" onClick={onCancel}>Voltar <kbd>Esc</kbd></button></div>
-        <small style={{ display: 'block', marginTop: 8, opacity: .7 }}>F1–F6 ou 1–6 escolhem a forma de pagamento</small>
+        <small style={{ display: 'block', marginTop: 8, opacity: .7 }}>F1–F6 ou 1–6 escolhem a forma · divida o valor em quantas formas precisar · Delete remove o último</small>
       </div>
     </div>)
 }

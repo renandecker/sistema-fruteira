@@ -120,3 +120,13 @@ kbd{background:#0003;border-radius:4px;padding:0 5px;font-size:11px;font-family:
 .tile:hover,.tile.on{border-color:var(--verde);background:var(--verde-claro)}
 .seletor-rodape{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .tile-mini{background:#fff;border:2px solid var(--borda);border-radius:10px;padding:2px 6px;cursor:pointer}.tile-mini:hover{border-color:var(--verde)}
+
+/* peso, simulador e pagamento dividido */
+.card.flash.b{animation-name:piscar2}
+@keyframes piscar2{0%{transform:scale(1.09);box-shadow:0 0 0 6px #ffd54f;background:#fff59d}60%{box-shadow:0 0 0 6px #ffd54f66}100%{transform:scale(1)}}
+.topbar .peso.alerta{background:var(--vermelho);color:#fff;animation:tremer .4s}
+@keyframes tremer{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+.sim-peso{display:flex;flex-direction:column;font-size:11px;font-weight:600;color:#fff}.sim-peso input{width:90px;padding:6px;border-radius:8px;border:2px dashed #ffd54f}
+.msg[role=status]{font-weight:600}
+.pags{list-style:none;padding:0;margin:6px 0}.pags li{display:flex;align-items:center;gap:10px;justify-content:space-between;background:var(--verde-claro);border-radius:8px;padding:6px 10px;margin-bottom:4px}
+.falta{font-size:18px;margin:4px 0}.falta b{color:var(--vermelho-escuro)}

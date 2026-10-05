@@ -21,6 +21,7 @@ public class Estoque {
         public BigDecimal quantidade;
         public BigDecimal custoUnitario;
         public String motivo;
+        public Long fornecedorId; public String fornecedor;   // entradas: de quem comprou
         public LocalDateTime data = LocalDateTime.now();
     }
 }

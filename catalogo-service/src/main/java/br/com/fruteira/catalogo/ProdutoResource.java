@@ -11,6 +11,7 @@ import java.util.List;
 public class ProdutoResource {
     @Inject Auditor auditor;
     @Inject PromocaoService promocoes;
+    @Inject PreCadastro preCadastro;
 
     /** Só o gerente enxerga produtos desativados (?inativos=true). A promoção vigente vem calculada em cada produto. */
     @GET public List<Produto> listar(@QueryParam("inativos") boolean inativos) {
@@ -81,6 +82,14 @@ public class ProdutoResource {
         p.ativo = true;
         auditor.registrar("REATIVACAO", "Produto", id, "Produto reativado: " + p.nome + aviso, null, null);
         return p;
+    }
+
+    /** Cadastra as frutas, legumes, verduras e temperos mais comuns (ignora o que já existe). */
+    @POST @Path("/pre-cadastro")
+    public PreCadastro.Resultado preCadastro() {
+        PreCadastro.Resultado r = preCadastro.aplicar();
+        auditor.registrar("CADASTRO", "Produto", null, "Pré-cadastro de frutas e verduras: " + r.produtosNovos() + " produto(s) e " + r.categoriasNovas() + " categoria(s) novos", null, null);
+        return r;
     }
 
     /** Painel de margem por categoria/safra: recalcula o preço de toda a categoria a partir do custo médio e da perda */

@@ -108,12 +108,27 @@ Usuários criados na primeira execução do retaguarda-service (usuário = senha
 - **Prix 4 Uno e etiquetadoras em geral:** relatos indicam que não transmitem o peso; a balança imprime a etiqueta e o caixa lê o **código de barras EAN-13** (prefixo 2). O formato (dígitos do código, preço total ou peso) é configurável e o código do item na balança deve ser o **PLU** do produto.
 - Produto por kg lido por etiqueta é aceito como peso automático (a etiqueta veio da balança).
 
+## Pagamento em mais de uma forma
+No modal **Pagar**, divida o total em quantas formas precisar: escolha a forma (`F1`–`F6`/`1`–`6`), informe o valor e `Enter` (**Adicionar pagamento**); repita até cobrir o total (**Finalizar venda**). O modal mostra o que já foi pago e o que falta; `F7` preenche o restante, `Delete` ou o × remove um pagamento. Só **dinheiro** pode passar do que falta (gera troco); no cartão/PIX/vales o valor não pode exceder o restante. No dinheiro o sistema grava o valor **aplicado** à venda (sem o troco), o que mantém o fechamento de caixa correto.
+
+## Entrada de mercadoria com fornecedor
+Na tela *Estoque → Entrada de mercadoria* escolha o **fornecedor** (cadastrado em Cadastros → Fornecedores; opcional). Ele é gravado na movimentação, aparece na auditoria e na lista **Últimas entradas** (`GET /estoque/entradas`). Com fornecedor, a entrada também registra a **cotação** (preço unitário pago) para o histórico CEASA; dá para desmarcar. Em produção, o supervisor lista fornecedores e registra cotações; só o gerente altera/consulta o restante.
+
+## Produto por kg e teste sem balança
+Produto por **kg** só entra com peso lido da balança (anti-fraude); sem balança conectada o caixa recusa e destaca o peso em vermelho com o aviso. Em **desenvolvimento** há o campo **🧪 peso (kg)** no topo do PDV para simular a balança; em produção ele não aparece.
+
+## Testes automatizados do front
+`cd pdv-web && npm install && npm test` (vitest + jsdom): vários itens por clique/PLU, aviso de peso, pagamento dividido com troco, validações do modal e entrada com fornecedor.
+
 ## Remover itens no caixa
 - **×** em cada item remove só ele; o **✕** à direita do campo CPF limpa todos os itens (pede confirmação). Ambos ficam registrados na **Auditoria** como *Cancelamento* (item, valor e usuário).
 
 ## Catálogo de imagens e pré-cadastro
 - **Imagem no PDV:** no cadastro do produto (e na coluna *Imagem* da tela Produtos) escolha a imagem no **catálogo** (≈70 frutas, legumes, verduras e temperos, com emoji ou ilustração vetorial) ou informe a URL de uma foto. Sem escolha, o sistema sugere pelo nome (Banana Prata → banana); o botão *Mapear imagens pelo nome* aplica isso aos produtos existentes. O PDV, o self-checkout e a consulta de preço usam a imagem escolhida.
-- **Script PostgreSQL:** `database/pre_cadastro_frutas_verduras.sql` cadastra 5 categorias e 69 produtos comuns (unidade, perda média, NCM sugerido, imagem) com PLU por popularidade. Idempotente. Rode **depois** de subir o `catalogo-service` em produção (ele cria as tabelas): `psql -h localhost -U postgres -d fruteira -f database/pre_cadastro_frutas_verduras.sql`. Preços e NCM são **referência**: confira antes de vender/emitir nota. Em desenvolvimento (H2) o script não se aplica.
+- **Script PostgreSQL:** `database/pre_cadastro_frutas_verduras.sql` cadastra 5 categorias e 69 produtos comuns (unidade, perda média, NCM sugerido, imagem) com PLU por popularidade. Idempotente. Rode **depois** de subir o `catalogo-service` em produção (ele cria as tabelas): `psql -h localhost -U postgres -d fruteira -f database/pre_cadastro_frutas_verduras.sql`. Preços e NCM são **referência**: confira antes de vender/emitir nota. **Rodar local:**
+  - *Desenvolvimento (H2, sem Docker):* o mesmo pré-cadastro (classe `PreCadastro`) é carregado **sozinho ao subir** o `catalogo-service` (`%dev.fruteira.pre-cadastro=true`). Em qualquer ambiente também há o botão **📥 Importar frutas e verduras mais comuns** na tela Produtos (`POST /produtos/pre-cadastro`); pode repetir sem duplicar.
+  - *PostgreSQL local:* `database/aplicar_sql_local.sh` (ou `.bat`) aplica o `.sql` usando o `psql` instalado ou o contêiner `postgres` do `docker-compose.prod.yml`.
+  - A lista existe em dois lugares (SQL e `PreCadastro.java`, gerada do SQL); ao editar uma, atualize a outra.
 
 ## Modal de pagamento — atalhos
 `F1` PIX · `F2` Dinheiro · `F3` Crédito · `F4` Débito · `F5` Vale-alimentação · `F6` Vale-refeição (ou as teclas `1`–`6`) · `F7` valor exato · `F8`/`F9` notas sugeridas · `Enter` confirma · `Esc` volta.

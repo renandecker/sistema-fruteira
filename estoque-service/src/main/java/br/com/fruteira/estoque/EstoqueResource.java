@@ -6,6 +6,7 @@ import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import java.math.*;
+import java.time.LocalDateTime;
 import java.util.*;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 
@@ -14,7 +15,7 @@ public class EstoqueResource {
     @Inject @RestClient CatalogoClient catalogo;
     @Inject Auditor auditor;
 
-    public record Entrada(Long produtoId, BigDecimal qtdEmbalagem, BigDecimal fatorConversao, BigDecimal custoTotal, String documento) {}
+    public record Entrada(Long produtoId, BigDecimal qtdEmbalagem, BigDecimal fatorConversao, BigDecimal custoTotal, String documento, Long fornecedorId, String fornecedor) {}
     public record Baixa(Long produtoId, BigDecimal quantidade, Tipo tipo, String motivo) {}
 
     private Saldo saldo(Long produtoId) {
@@ -33,9 +34,10 @@ public class EstoqueResource {
         BigDecimal custoUnit = e.custoTotal().divide(qtdVenda, 4, RoundingMode.HALF_UP);
         s.custoMedio = valorAtual.add(e.custoTotal()).divide(novaQtd, 4, RoundingMode.HALF_UP);
         s.quantidade = novaQtd;
-        mov(e.produtoId(), Tipo.ENTRADA, qtdVenda, custoUnit, e.documento());
+        Movimento mv = mov(e.produtoId(), Tipo.ENTRADA, qtdVenda, custoUnit, e.documento());
+        mv.fornecedorId = e.fornecedorId(); mv.fornecedor = e.fornecedor();
         catalogo.custo(e.produtoId(), s.custoMedio);
-        auditor.registrar("CADASTRO", "Entrada de estoque", e.produtoId(), "Entrada de " + qtdVenda + " (doc: " + e.documento() + "), custo total R$ " + e.custoTotal(), null, e);
+        auditor.registrar("CADASTRO", "Entrada de estoque", e.produtoId(), "Entrada de " + qtdVenda + " (doc: " + e.documento() + "), custo total R$ " + e.custoTotal() + (e.fornecedor() == null || e.fornecedor().isBlank() ? "" : ", fornecedor " + e.fornecedor()), null, e);
         return s;
     }
     /** Baixa por venda, perda, avaria ou transformação */
@@ -62,6 +64,13 @@ public class EstoqueResource {
         mov(p.produtoId(), Tipo.PRODUCAO_ENTRADA, p.qtdProduto(), out.custoMedio, "produção");
         auditor.registrar("EDICAO", "Produção/fracionamento", p.produtoId(), "Produção: " + p.qtdInsumo() + " do insumo #" + p.insumoId() + " viraram " + p.qtdProduto() + " do produto #" + p.produtoId(), null, p);
     }
+    /** Últimas entradas de mercadoria (com o fornecedor) */
+    public record EntradaDTO(Long id, Long produtoId, LocalDateTime data, BigDecimal quantidade, BigDecimal custoUnitario, String documento, String fornecedor) {}
+    @GET @Path("/entradas")
+    public List<EntradaDTO> entradas(@QueryParam("limit") @DefaultValue("50") int limit) {
+        List<Movimento> l = Movimento.find("tipo = ?1 order by id desc", Tipo.ENTRADA).page(0, Math.min(Math.max(limit, 1), 200)).list();
+        return l.stream().map(m -> new EntradaDTO(m.id, m.produtoId, m.data, m.quantidade, m.custoUnitario, m.motivo, m.fornecedor)).toList();
+    }
     @GET @Path("/{produtoId}") public Saldo consulta(@PathParam("produtoId") Long id) { return saldo(id); }
 
     /** Relatório de perdas: quantidade e valor (a custo médio) por produto */
@@ -77,7 +86,8 @@ public class EstoqueResource {
         acc.forEach((k, v) -> out.add(Map.of("produtoId", k, "quantidade", v[0], "valorPerdido", v[1])));
         return out;
     }
-    private void mov(Long pid, Tipo t, BigDecimal q, BigDecimal c, String motivo) {
+    private Movimento mov(Long pid, Tipo t, BigDecimal q, BigDecimal c, String motivo) {
         Movimento m = new Movimento(); m.produtoId = pid; m.tipo = t; m.quantidade = q; m.custoUnitario = c; m.motivo = motivo; m.persist();
+        return m;
     }
 }
