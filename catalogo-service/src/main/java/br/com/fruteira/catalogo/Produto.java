@@ -19,6 +19,7 @@ public class Produto extends PanacheEntity {
     @Transient public BigDecimal descontoPct;
     @Column(unique = true) public Integer plu;   // atalho numérico rápido (1 = Banana Prata)
     public String codigoBarras;
+    @Column(length = 60) public String imagem;     // chave do catálogo de imagens (ex.: "banana")
     @Column(length = 1) public String atalho;   // opcional: 1 número (0-9) ou letra (A-Z) usado com Ctrl no PDV
     public String categoria;                 // folhosas, frutas de época...
     public String fotoUrl;                   // botão touch com foto

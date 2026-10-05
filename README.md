@@ -102,6 +102,22 @@ Usuários criados na primeira execução do retaguarda-service (usuário = senha
 - **Promoções** (Cadastros → Promoções): marque vários produtos, escolha **% de desconto** ou **preço promocional** e defina o **prazo** (início e fim; atalhos Só hoje/3/7/15 dias). Uma promoção por produto por período (sem sobreposição); edição, desativação e reativação (gerente) com auditoria. O preço promocional é **calculado em tempo real** e deixou de existir no cadastro do produto.
 - **No caixa:** produto em promoção mostra a faixa **PROMO −x%**, preço antigo riscado, preço novo e a data final; na lista aparece a etiqueta PROMO, o desconto da linha e o total economizado. O desconto é calculado pelo servidor (a venda grava preço original e desconto por item) e vale só dentro do prazo.
 
+## Balança Toledo Prix e outras balanças
+- **Pelo cabo (Web Serial, Chrome/Edge em localhost ou HTTPS):** em *Configurações → Balança e periféricos* escolha o modelo (ou ajuste protocolo, baud, bits, paridade e divisor) e use **Testar balança** para ver o peso e os bytes recebidos. Protocolos: *contínuo* (a balança envia o peso) e *ENQ* (o sistema pede com `0x05` e a balança responde `<STX>00446<ETX>` = 0,446 kg). A porta já autorizada é reconectada sozinha ao abrir o caixa.
+- **Prix 3 Fit / 3 Plus:** só enviam o peso se tiverem a interface **RS-232 opcional** (cabo conversor RJ45→serial da Toledo + adaptador USB-serial) e protocolo/velocidade/paridade iguais nos dois lados (relatos de campo: 2400 ou 4800 bps, protocolo P05A/P03, 8N1). **Não testado com a balança física.**
+- **Prix 4 Uno e etiquetadoras em geral:** relatos indicam que não transmitem o peso; a balança imprime a etiqueta e o caixa lê o **código de barras EAN-13** (prefixo 2). O formato (dígitos do código, preço total ou peso) é configurável e o código do item na balança deve ser o **PLU** do produto.
+- Produto por kg lido por etiqueta é aceito como peso automático (a etiqueta veio da balança).
+
+## Remover itens no caixa
+- **×** em cada item remove só ele; o **✕** à direita do campo CPF limpa todos os itens (pede confirmação). Ambos ficam registrados na **Auditoria** como *Cancelamento* (item, valor e usuário).
+
+## Catálogo de imagens e pré-cadastro
+- **Imagem no PDV:** no cadastro do produto (e na coluna *Imagem* da tela Produtos) escolha a imagem no **catálogo** (≈70 frutas, legumes, verduras e temperos, com emoji ou ilustração vetorial) ou informe a URL de uma foto. Sem escolha, o sistema sugere pelo nome (Banana Prata → banana); o botão *Mapear imagens pelo nome* aplica isso aos produtos existentes. O PDV, o self-checkout e a consulta de preço usam a imagem escolhida.
+- **Script PostgreSQL:** `database/pre_cadastro_frutas_verduras.sql` cadastra 5 categorias e 69 produtos comuns (unidade, perda média, NCM sugerido, imagem) com PLU por popularidade. Idempotente. Rode **depois** de subir o `catalogo-service` em produção (ele cria as tabelas): `psql -h localhost -U postgres -d fruteira -f database/pre_cadastro_frutas_verduras.sql`. Preços e NCM são **referência**: confira antes de vender/emitir nota. Em desenvolvimento (H2) o script não se aplica.
+
+## Modal de pagamento — atalhos
+`F1` PIX · `F2` Dinheiro · `F3` Crédito · `F4` Débito · `F5` Vale-alimentação · `F6` Vale-refeição (ou as teclas `1`–`6`) · `F7` valor exato · `F8`/`F9` notas sugeridas · `Enter` confirma · `Esc` volta.
+
 ## Leitor de código de barras (topo do PDV)
 - O campo **Código de barras** fica no topo, já focado ao abrir o caixa e volta ao foco após cada lançamento e após o pagamento. **F4** leva o cursor até ele de qualquer lugar da tela (Esc limpa).
 - **Ctrl+Tab não é possível:** o navegador reserva essa combinação (troca de abas do navegador) e uma página web não consegue capturá-la; por isso o atalho é **F4**.

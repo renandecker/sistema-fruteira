@@ -17,7 +17,9 @@ public class AuditoriaResource {
     @POST @Transactional
     public Map<String, Object> registrar(AuditoriaEvento e) {
         Auditor.Quem q = auditor.autenticado();
-        if (q == null) q = new Auditor.Quem(e.usuario() == null ? "desconhecido" : e.usuario(), e.perfil() == null ? "-" : e.perfil());
+        if (q == null) q = (e.usuario() != null && !e.usuario().isBlank())
+            ? new Auditor.Quem(e.usuario(), e.perfil() == null ? "-" : e.perfil())
+            : auditor.quem();      // dev: sem usuário no corpo, usa os cabeçalhos X-Usuario/X-Perfil
         auditor.gravar(q, e.origem(), e.acao(), e.entidade(), e.entidadeId(), e.descricao(), e.antes(), e.depois());
         return Map.of("ok", true);
     }
@@ -40,8 +42,10 @@ public class AuditoriaResource {
     @GET @Path("/filtros")
     public Map<String, List<String>> filtros() {
         var em = Auditoria.getEntityManager();
+        // O nome da entidade em HQL de uma classe aninhada não é "Auditoria": pergunta ao Hibernate (evita o erro 500)
+        String ent = em.getMetamodel().entity(Auditoria.class).getName();
         return Map.of(
-            "usuarios", em.createQuery("select distinct a.usuario from Auditoria a order by a.usuario", String.class).getResultList(),
-            "entidades", em.createQuery("select distinct a.entidade from Auditoria a order by a.entidade", String.class).getResultList());
+            "usuarios", em.createQuery("select distinct a.usuario from " + ent + " a order by a.usuario", String.class).getResultList(),
+            "entidades", em.createQuery("select distinct a.entidade from " + ent + " a order by a.entidade", String.class).getResultList());
     }
 }

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { NovoProduto, TECLAS } from './paginas2.jsx'
 import { useLista } from './lib.jsx'
+import { ImagemProduto, SeletorImagem, sugerirImagem } from './catalogoImagens.jsx'
 
 const brl = n => Number(n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const api = (p, o) => fetch(p, { headers: { 'Content-Type': 'application/json' }, ...o }).then(r => r.ok ? r.json().catch(() => ({})) : r.text().then(t => Promise.reject(t)))
@@ -23,13 +24,19 @@ export function EmBreve({ item }) {
 
 export function Produtos() {
   const [lista, recarregar] = useProdutos(true); const [categorias] = useLista('/api/catalogo/categorias'); const [msg, setMsg] = useState('')
-  const [cat, setCat] = useState(''); const [margem, setMargem] = useState(40)
+  const [cat, setCat] = useState(''); const [margem, setMargem] = useState(40); const [seletor, setSeletor] = useState(null)
   const cats = [...new Set(lista.filter(p => p.ativo !== false).map(p => p.categoria).filter(Boolean))]
   const nDesativados = lista.filter(p => p.ativo === false).length
   const usados = lista.filter(p => p.ativo !== false && p.atalho).map(p => p.atalho)
+  const semImagem = lista.filter(p => p.ativo !== false && !p.imagem && !p.fotoUrl && sugerirImagem(p.nome))
   const erro = e => setMsg(String(e) || 'Operação não permitida para o seu perfil')
-  const atualizar = (p, campos, ok) => api(`/api/catalogo/produtos/${p.id}`, { method: 'PUT', body: JSON.stringify({ ...p, ...campos }) })
-    .then(() => { setMsg(ok); recarregar() }).catch(erro)
+  const put = (p, campos) => api(`/api/catalogo/produtos/${p.id}`, { method: 'PUT', body: JSON.stringify({ ...p, ...campos }) })
+  const atualizar = (p, campos, ok) => put(p, campos).then(() => { setMsg(ok); recarregar() }).catch(erro)
+  const mapear = async () => {   // mapeia a imagem do catálogo pelo nome de todos os produtos sem imagem
+    let n = 0
+    for (const p of semImagem) { try { await put(p, { imagem: sugerirImagem(p.nome).key }); n++ } catch (e) { erro(e) } }
+    setMsg(`${n} produto(s) mapeado(s) com a imagem do catálogo`); recarregar()
+  }
   const ajustar = () => post(`/api/catalogo/produtos/categoria/${cat}/margem?margemPct=${margem}`)
     .then(n => { setMsg(`Preços recalculados (${n} produtos)`); recarregar() }).catch(erro)
   const desativar = p => window.confirm(`Desativar "${p.nome}"?\nEle some do PDV e das vendas, mas o histórico e a auditoria são mantidos (o PLU continua reservado). Somente o gerente vê e pode reativar.`)
@@ -43,9 +50,13 @@ export function Produtos() {
       <input type="number" value={margem} onChange={e => setMargem(e.target.value)} style={{ width: 70 }} /> %
       <button className="btn" disabled={!cat} onClick={ajustar}>Recalcular preços</button>
       <small>preço = custo médio ÷ (1 − perda) × (1 + margem). Promoções ficam na tela <b>Promoções</b>.</small></div>
+    {semImagem.length > 0 && <div className="barra"><span>🖼️ {semImagem.length} produto(s) sem imagem escolhida têm imagem sugerida pelo nome.</span>
+      <button className="btn sec" onClick={mapear}>Mapear imagens do catálogo pelo nome</button></div>}
     {nDesativados > 0 && <p><small>{nDesativados} produto(s) desativado(s) — visíveis somente para o gerente.</small></p>}
-    <table className="tab"><thead><tr><th>PLU</th><th>Atalho (Ctrl+)</th><th>Produto</th><th>Un.</th><th>Categoria</th><th>Custo médio</th><th>Perda %</th><th>Preço</th><th>Ações</th></tr></thead>
-      <tbody>{lista.map(p => <tr key={p.id} className={p.ativo === false ? 'inativo' : ''}><td>{p.plu}</td>
+    <table className="tab"><thead><tr><th>Imagem</th><th>PLU</th><th>Atalho (Ctrl+)</th><th>Produto</th><th>Un.</th><th>Categoria</th><th>Custo médio</th><th>Perda %</th><th>Preço</th><th>Ações</th></tr></thead>
+      <tbody>{lista.map(p => <tr key={p.id} className={p.ativo === false ? 'inativo' : ''}>
+        <td>{p.ativo === false ? <ImagemProduto p={p} size={34} /> : <button className="tile-mini" title="Trocar imagem (catálogo)" onClick={() => setSeletor(p)}><ImagemProduto p={p} size={34} /></button>}</td>
+        <td>{p.plu}</td>
         <td>{p.ativo === false ? (p.atalho ? `Ctrl+${p.atalho}` : '—') : <select value={p.atalho || ''} onChange={e => atualizar(p, { atalho: e.target.value || null }, e.target.value ? `Atalho Ctrl+${e.target.value} definido para "${p.nome}"` : `Atalho removido de "${p.nome}"`)}>
           <option value="">—</option>{TECLAS.map(t => { const emUso = usados.includes(t) && p.atalho !== t; return <option key={t} value={t} disabled={emUso}>{t}{emUso ? ' (em uso)' : ''}</option> })}</select>}</td>
         <td>{p.nome} {p.ativo === false && <span className="classe off">Desativado</span>}</td><td>{p.unidade}</td>
@@ -54,6 +65,7 @@ export function Produtos() {
           {categorias.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}</select>}</td>
         <td>{brl(p.custoMedio)}</td><td>{p.taxaPerdaPct}</td><td>{brl(p.precoVarejo)}</td>
         <td>{p.ativo === false ? <button className="btn sec" onClick={() => reativar(p)}>Reativar</button> : <button className="btn sec" onClick={() => desativar(p)}>Desativar</button>}</td></tr>)}</tbody></table>
+    {seletor && <SeletorImagem atual={seletor.imagem} onFechar={() => setSeletor(null)} onEscolher={v => { atualizar(seletor, v, `Imagem de "${seletor.nome}" atualizada`); setSeletor(null) }} />}
   </Pagina>
 }
 

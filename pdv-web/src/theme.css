@@ -100,3 +100,23 @@ a.btn{text-decoration:none;display:inline-block}h3{color:var(--verde-escuro)}
 .leitor input{padding:10px 14px;font-size:20px;border-radius:10px;border:3px solid #fff;outline:none;background:#fff;color:var(--verde-escuro);font-family:monospace;letter-spacing:1px}
 .leitor input:focus{border-color:#ffd54f;box-shadow:0 0 0 3px #ffd54f88}
 .leitor kbd{background:#0004;border-radius:4px;padding:0 6px;font-size:11px}
+
+/* remover itens do caixa */
+.campo-x{position:relative;display:flex}.campo-x input{flex:1;padding-right:36px}
+.x-limpar{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:var(--vermelho);color:#fff;border:0;border-radius:50%;width:28px;height:28px;font-size:14px;font-weight:700;cursor:pointer}
+.x-limpar:hover{background:var(--vermelho-escuro)}
+.li-dir{display:flex;align-items:center;gap:8px}
+.x-item{background:#fff;color:var(--vermelho);border:2px solid var(--vermelho);border-radius:50%;width:26px;height:26px;line-height:1;font-size:18px;font-weight:700;cursor:pointer;padding:0}
+.x-item:hover{background:var(--vermelho);color:#fff}
+/* modal de pagamento */
+.pag{min-width:420px;max-width:92vw}
+kbd{background:#0003;border-radius:4px;padding:0 5px;font-size:11px;font-family:inherit}
+.meios button.on kbd{background:#fff3}
+/* catálogo de imagens */
+.seletor{width:min(760px,94vw);max-height:90vh;display:flex;flex-direction:column;gap:8px;background:#fff;padding:20px;border-radius:16px;border-top:8px solid var(--verde)}
+.seletor-grid{overflow:auto;flex:1;min-height:200px}.seletor h4{margin:10px 0 4px;color:var(--verde-escuro)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}
+.tile{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;background:#fff;border:2px solid var(--borda);border-radius:12px;cursor:pointer;font-size:12px}
+.tile:hover,.tile.on{border-color:var(--verde);background:var(--verde-claro)}
+.seletor-rodape{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.tile-mini{background:#fff;border:2px solid var(--borda);border-radius:10px;padding:2px 6px;cursor:pointer}.tile-mini:hover{border-color:var(--verde)}

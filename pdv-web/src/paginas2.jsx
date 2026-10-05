@@ -1,8 +1,11 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { brl, api, post, cfg, useProdutos, useLista, useForm, Pagina, Aviso, SelProduto } from './lib.jsx'
 import { useBalanca } from './balanca.js'
 import { PROD, KC } from './auth.js'
+import { abrirBalanca } from './balanca.js'
+import { codificarEtiqueta, formatoEtiqueta } from './etiqueta.js'
+import { ImagemProduto, SeletorImagem, IconeFruta, CATALOGO, sugerirImagem } from './catalogoImagens.jsx'
 
 const R = '/api/retaguarda'
 const Selo = ({ x }) => x.ativo === false ? <span className="classe off">Desativado</span> : null
@@ -16,9 +19,12 @@ const dataBR = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : 
 // Teclas permitidas p/ Ctrl+tecla. Ficam de fora N, T e W: o navegador reserva Ctrl+N/T/W e a página não consegue interceptá-los.
 export const TECLAS = [...'0123456789ABCDEFGHIJKLMOPQRSUVXYZ']
 export function NovoProduto({ onSave, usados = [], categorias = [] }) {
-  const ini = { nome: '', unidade: 'KG', categoria: '', precoVarejo: '', plu: '', atalho: '', taxaPerdaPct: 0, ncm: '', codigoBarras: '' }
-  const [f, s, setF] = useForm(ini); const [msg, setMsg] = useState('')
-  const salvar = () => post('/api/catalogo/produtos', { ...f, precoVarejo: +f.precoVarejo, plu: f.plu ? +f.plu : null, taxaPerdaPct: +f.taxaPerdaPct })
+  const ini = { nome: '', unidade: 'KG', categoria: '', precoVarejo: '', plu: '', atalho: '', taxaPerdaPct: 0, ncm: '', codigoBarras: '', imagem: '', fotoUrl: '' }
+  const [f, s, setF] = useForm(ini); const [msg, setMsg] = useState(''); const [seletor, setSeletor] = useState(false)
+  const sug = sugerirImagem(f.nome)
+  const escolhida = f.imagem ? CATALOGO.find(i => i.key === f.imagem) : null
+  const salvar = () => post('/api/catalogo/produtos', { ...f, precoVarejo: +f.precoVarejo, plu: f.plu ? +f.plu : null, taxaPerdaPct: +f.taxaPerdaPct,
+      imagem: f.imagem || (!f.fotoUrl && sug ? sug.key : null), fotoUrl: f.fotoUrl || null })   // sem imagem escolhida: usa a sugerida pelo nome
     .then(() => { setF(ini); setMsg('Produto cadastrado ✔'); onSave() }).catch(e => setMsg(String(e)))
   return <details className="barra" style={{ display: 'block' }}><summary><b>+ Novo produto</b></summary><Aviso m={msg} />
     <div className="grid2" style={{ marginTop: 10 }}>
@@ -32,8 +38,14 @@ export function NovoProduto({ onSave, usados = [], categorias = [] }) {
         {TECLAS.map(t => <option key={t} value={t} disabled={usados.includes(t)}>{t}{usados.includes(t) ? ' (em uso)' : ''}</option>)}</select></label>
       <label>Perda esperada %<input type="number" value={f.taxaPerdaPct} onChange={s('taxaPerdaPct')} /></label>
       <label>NCM<input value={f.ncm} onChange={s('ncm')} /></label>
-      <label>Cód. barras<input value={f.codigoBarras} onChange={s('codigoBarras')} /></label></div>
-    <button className="btn" style={{ marginTop: 10 }} disabled={!f.nome || !f.precoVarejo} onClick={salvar}>Salvar produto</button></details>
+      <label>Cód. barras<input value={f.codigoBarras} onChange={s('codigoBarras')} /></label>
+      <label>Imagem no PDV
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {f.fotoUrl ? <img src={f.fotoUrl} alt="" width="40" height="40" style={{ objectFit: 'cover', borderRadius: 6 }} /> : <IconeFruta item={escolhida || sug} size={40} />}
+          <button type="button" className="btn sec" onClick={() => setSeletor(true)}>Escolher no catálogo</button></span>
+        <small>{f.fotoUrl ? 'foto por URL' : escolhida ? escolhida.nome : sug ? `sugerida pelo nome: ${sug.nome}` : 'sem imagem (padrão)'}</small></label></div>
+    <button className="btn" style={{ marginTop: 10 }} disabled={!f.nome || !f.precoVarejo} onClick={salvar}>Salvar produto</button>
+    {seletor && <SeletorImagem atual={f.imagem} onFechar={() => setSeletor(false)} onEscolher={v => { setF({ ...f, imagem: v.imagem || '', fotoUrl: v.fotoUrl || '' }); setSeletor(false) }} />}</details>
 }
 
 export function Fornecedores() {
@@ -277,8 +289,7 @@ export function Etiquetas() {
   const [lista] = useProdutos(); const [f, setF] = useState({ produtoId: '', qtd: '', lote: '', validade: '', nutri: 'Porção de 100 g: Valor energético ___ kcal | Carboidratos ___ g | Proteínas ___ g | Gorduras ___ g | Fibras ___ g | Sódio ___ mg' })
   const p = lista.find(x => x.id === +f.produtoId); const preco = p ? +(p.precoPromocional ?? p.precoVarejo) : 0
   const valor = p && f.qtd ? +(preco * f.qtd).toFixed(2) : 0
-  const base = p && p.plu && valor > 0 && valor < 1000 ? '2' + String(p.plu).padStart(6, '0') + String(Math.round(valor * 100)).padStart(5, '0') : null
-  const ean = base ? base + dv(base) : null
+  const ean = p && valor > 0 ? codificarEtiqueta(p.plu, valor, +f.qtd) : null
   return <Pagina titulo="🔖 Etiquetas e EAN-13">
     <div className="form wide" style={{ maxWidth: 560 }}>
       <label>Produto<SelProduto lista={lista} v={f.produtoId} onChange={v => setF({ ...f, produtoId: v })} /></label>
@@ -291,7 +302,7 @@ export function Etiquetas() {
       <div>Lote: {f.lote || '—'} · Val.: {dataBR(f.validade)}</div><Barras ean={ean} /><small>{f.nutri}</small></div>
       <button className="btn" style={{ marginTop: 12 }} onClick={() => window.print()}>Imprimir etiqueta</button>
       <p><small>EAN-13 de peso variável: prefixo 2 + código (PLU, 6 díg.) + valor em centavos (5 díg.) + dígito verificador. O caixa deve estar configurado para decodificar esse padrão.</small></p></>
-      : <p><small>Escolha um produto com PLU e informe a quantidade (valor total abaixo de R$ 1.000).</small></p>}</Pagina>
+      : <p><small>Escolha um produto com PLU e informe a quantidade. Formato configurado: código de {formatoEtiqueta().nCod} dígitos + {formatoEtiqueta().tipo === 'peso' ? 'peso em gramas' : 'preço total em centavos'} ({formatoEtiqueta().nVal} dígitos).</small></p>}</Pagina>
 }
 
 /* ---------- Autoatendimento e consulta ---------- */
@@ -306,7 +317,7 @@ export function SelfCheckout() {
     <section className="main"><header className="topbar"><img src="/logo.png" alt="" /><h2 style={{ margin: 0 }}>Autoatendimento</h2>
       {!b.conectada && <button className="btn sec" onClick={() => b.conectar().catch(() => setMsg('Falha na balança'))}>Conectar balança</button>}<span className="peso">{b.peso.toFixed(3)} kg</span></header>
       {msg && <div className="msg" style={{ fontSize: 20 }}>{msg}</div>}
-      <div className="grid">{lista.map(p => <button key={p.id} className="card" style={{ fontSize: 20, padding: 16 }} onClick={() => add(p)}><div className="emoji">🥬</div>{p.nome}<div className="preco">{brl(p.precoPromocional ?? p.precoVarejo)}/{p.unidade}</div></button>)}</div></section>
+      <div className="grid">{lista.map(p => <button key={p.id} className="card" style={{ fontSize: 20, padding: 16 }} onClick={() => add(p)}><div className="emoji"><ImagemProduto p={p} size={56} /></div>{p.nome}<div className="preco">{brl(p.precoPromocional ?? p.precoVarejo)}/{p.unidade}</div></button>)}</div></section>
     <aside className="side"><h2>Sua compra</h2><ul>{it.map((i, k) => <li key={k}><span>{i.nome}<br /><small>{i.q.toFixed(3)} × {brl(i.pr)}</small></span><b>{brl(i.sub)}</b></li>)}</ul>
       <div className="total">{brl(total)}</div><button className="btn pagar" disabled={!it.length} onClick={() => setPag(true)}>Pagar</button></aside>
     {pag && <div className="modal"><div style={{ textAlign: 'center' }}><h2>Total {brl(total)}</h2>
@@ -322,7 +333,7 @@ export function Consulta() {
   return <Pagina titulo="🏷️ Consulta de preço">
     <div className="barra"><input placeholder="PLU, código de barras ou nome" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && buscar()} />
       <button className="btn" onClick={buscar}>Buscar</button>{!b.conectada && <button className="btn sec" onClick={() => b.conectar()}>Conectar balança</button>}<b style={{ fontSize: 24, marginLeft: 'auto' }}>{b.peso.toFixed(3)} kg</b></div>
-    <div className="grid" style={{ padding: 0, marginBottom: 16 }}>{lista.map(i => <button key={i.id} className="card" onClick={() => setP(i)}><div className="emoji">🥬</div>{i.nome}</button>)}</div>
+    <div className="grid" style={{ padding: 0, marginBottom: 16 }}>{lista.map(i => <button key={i.id} className="card" onClick={() => setP(i)}><div className="emoji"><ImagemProduto p={i} size={56} /></div>{i.nome}</button>)}</div>
     {p && <div className="vazio" style={{ margin: '0 auto' }}><h2>{p.nome}</h2><div style={{ fontSize: 22 }}>{brl(preco)}/{p.unidade}</div>
       {p.unidade === 'KG' && <div style={{ fontSize: 48, color: 'var(--verde-escuro)', fontWeight: 700 }}>{brl(preco * b.peso)}</div>}</div>}</Pagina>
 }
@@ -342,18 +353,60 @@ function UsuariosLocal() {
     <p><small>Senhas guardadas com hash (SHA-256). Em produção, use Keycloak/OIDC e valide o perfil também nas APIs.</small></p></Pagina>
 }
 
+const PRESETS = {
+  continuo: { rot: 'Balança que envia o peso continuamente (Filizola, Urano, Toledo contínuo)', protocolo: 'continuo', baud: 9600, dataBits: 8, parity: 'none', stopBits: 1 },
+  toledoEnq: { rot: 'Toledo — consulta por ENQ (resposta STX + peso + ETX)', protocolo: 'enq', baud: 4800, dataBits: 8, parity: 'none', stopBits: 1 },
+  prix3: { rot: 'Toledo Prix 3 Fit / 3 Plus (RS-232 opcional)', protocolo: 'enq', baud: 2400, dataBits: 8, parity: 'none', stopBits: 1 },
+}
 export function Perifericos() {
-  const [f, setF] = useState({ baud: 9600, tef: 'nenhum', impressora: 'Térmica 80mm (USB)', gaveta: 'sim', lat: '', lon: '', ...cfg() }); const [ok, setOk] = useState(false)
+  const [f, setF] = useState({ protocolo: 'continuo', baud: 9600, dataBits: 8, parity: 'none', stopBits: 1, divisor: 1000, etiquetaCodigo: 6, etiquetaValor: 'preco',
+    tef: 'nenhum', impressora: 'Térmica 80mm (USB)', gaveta: 'sim', lat: '', lon: '', ...cfg() })
+  const [ok, setOk] = useState(false); const [t, setT] = useState({ ativo: false, peso: null, raw: [], erro: '' }); const ctl = useRef(null)
   const s = k => e => { setF({ ...f, [k]: e.target.value }); setOk(false) }
+  const preset = e => { const p = PRESETS[e.target.value]; if (p) { const { rot, ...c } = p; setF({ ...f, ...c }); setOk(false) } }
+  const testar = async () => {
+    try {
+      ctl.current = await abrirBalanca(f, { onPeso: p => setT(x => ({ ...x, peso: p })), onRaw: h => setT(x => ({ ...x, raw: [h, ...x.raw].slice(0, 12) })), onErro: e => setT(x => ({ ...x, erro: String(e.message || e), ativo: false })) })
+      setT({ ativo: true, peso: null, raw: [], erro: '' })
+    } catch (e) { setT({ ativo: false, peso: null, raw: [], erro: String(e.message || e) }) }
+  }
+  const parar = () => ctl.current?.fechar().then(() => setT(x => ({ ...x, ativo: false })))
+  useEffect(() => () => { ctl.current?.fechar() }, [])
   return <Pagina titulo="⚙️ Balança e periféricos">
-    <div className="form wide" style={{ maxWidth: 520 }}>
-      <label>Balança — baud rate (porta serial)<select value={f.baud} onChange={s('baud')}>{[2400, 4800, 9600, 19200].map(x => <option key={x}>{x}</option>)}</select></label>
+    <div className="form wide" style={{ maxWidth: 640 }}>
+      <h3 style={{ margin: 0 }}>Balança (cabo serial)</h3>
+      <label>Modelo / protocolo (preenche os campos abaixo)<select defaultValue="" onChange={preset}><option value="">Escolher um modelo…</option>
+        {Object.entries(PRESETS).map(([k, p]) => <option key={k} value={k}>{p.rot}</option>)}</select></label>
+      <div className="grid2">
+        <label>Protocolo<select value={f.protocolo} onChange={s('protocolo')}><option value="continuo">Contínuo (a balança envia o peso)</option><option value="enq">Consulta ENQ (STX + peso + ETX)</option></select></label>
+        <label>Velocidade (baud)<select value={f.baud} onChange={s('baud')}>{[1200, 2400, 4800, 9600, 19200, 38400].map(x => <option key={x}>{x}</option>)}</select></label>
+        <label>Bits de dados<select value={f.dataBits} onChange={s('dataBits')}><option>7</option><option>8</option></select></label>
+        <label>Paridade<select value={f.parity} onChange={s('parity')}><option value="none">Nenhuma</option><option value="even">Par</option><option value="odd">Ímpar</option></select></label>
+        <label>Bits de parada<select value={f.stopBits} onChange={s('stopBits')}><option>1</option><option>2</option></select></label>
+        <label>Divisor (ENQ: 00446 ÷ 1000 = 0,446 kg)<input type="number" value={f.divisor} onChange={s('divisor')} /></label></div>
+      <div className="msg" style={{ margin: 0 }}>
+        <b>Toledo Prix:</b> a <b>3 Fit / 3 Plus</b> só envia o peso ao PC se tiver a interface <b>RS-232 opcional</b> (cabo conversor RJ45→serial da Toledo + adaptador USB-serial) e o protocolo/velocidade/paridade da balança
+        (menu de configuração) forem iguais aos daqui — o mais comum é erro de protocolo ou paridade; use o teste abaixo. Modelos como a <b>Prix 4 Uno</b> costumam <b>não transmitir o peso</b>: a balança imprime a etiqueta e o caixa lê o <b>código de barras</b> (configure o formato abaixo).</div>
+      <div><button className="btn sec" onClick={t.ativo ? parar : testar}>{t.ativo ? 'Parar teste' : 'Testar balança (escolher porta)'}</button></div>
+      {(t.ativo || t.raw.length > 0 || t.erro) && <div style={{ background: '#fff', border: '2px solid var(--borda)', borderRadius: 10, padding: 10 }}>
+        {t.erro && <div style={{ color: 'var(--vermelho)' }}>⚠ {t.erro}</div>}
+        <div style={{ fontSize: 28 }}>Peso lido: <b>{t.peso == null ? '—' : `${t.peso.toFixed(3)} kg`}</b></div>
+        <small>Bytes recebidos (mais recente primeiro): se nada aparecer, confira cabo, baud, paridade e se a balança está configurada para transmitir.</small>
+        <pre style={{ margin: '6px 0 0', maxHeight: 140, overflow: 'auto', fontSize: 12 }}>{t.raw.join('\n') || '(aguardando dados…)'}</pre></div>}
+
+      <h3 style={{ margin: '8px 0 0' }}>Etiqueta de balança computadora (código de barras EAN-13 com prefixo 2)</h3>
+      <div className="grid2">
+        <label>Dígitos do código do item (PLU)<select value={f.etiquetaCodigo} onChange={s('etiquetaCodigo')}><option value="6">6 (valor com 5 dígitos)</option><option value="5">5 (valor com 6 dígitos)</option><option value="4">4 (valor com 7 dígitos)</option></select></label>
+        <label>O valor da etiqueta é<select value={f.etiquetaValor} onChange={s('etiquetaValor')}><option value="preco">Preço total (centavos)</option><option value="peso">Peso (gramas)</option></select></label></div>
+      <small>Vale para ler etiquetas das balanças no caixa e para gerar etiquetas na tela Etiquetas. O código do item na balança deve ser o PLU do produto.</small>
+
+      <h3 style={{ margin: '8px 0 0' }}>Outros</h3>
       <label>TEF / maquininha<select value={f.tef} onChange={s('tef')}><option value="nenhum">Manual (sem integração)</option><option value="paygo">PayGo</option><option value="sitef">SiTef</option></select></label>
       <label>Impressora<input value={f.impressora} onChange={s('impressora')} /></label>
       <label>Gaveta de dinheiro<select value={f.gaveta} onChange={s('gaveta')}><option value="sim">Abrir ao receber dinheiro</option><option value="nao">Não usa</option></select></label>
       <label>Latitude da loja (previsão do tempo)<input value={f.lat} onChange={s('lat')} placeholder="-30.0346" /></label>
       <label>Longitude da loja<input value={f.lon} onChange={s('lon')} placeholder="-51.2177" /></label>
-      <button className="btn" onClick={() => { localStorage.setItem('cfg', JSON.stringify(f)); setOk(true) }}>Salvar neste computador</button>{ok && <span>Salvo ✔</span>}
+      <button className="btn" onClick={() => { localStorage.setItem('cfg', JSON.stringify(f)); setOk(true) }}>Salvar neste computador</button>{ok && <span>Salvo ✔ (recarregue o caixa para aplicar)</span>}
       <small>O TEF fica registrado como configuração; a integração com o SDK da adquirente é feita no agente local do PDV.</small></div></Pagina>
 }
 

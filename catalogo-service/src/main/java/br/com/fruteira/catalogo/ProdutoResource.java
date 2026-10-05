@@ -53,7 +53,7 @@ public class ProdutoResource {
         String atalho = normalizarAtalho(in.atalho, id);
         String codigoBarras = validarCodigoBarras(in.codigoBarras, id);
         p.nome = in.nome; p.unidade = in.unidade; p.precoVarejo = in.precoVarejo; p.precoAtacado = in.precoAtacado;
-        p.plu = in.plu; p.codigoBarras = codigoBarras; p.categoria = categoria; p.fotoUrl = in.fotoUrl;
+        p.plu = in.plu; p.codigoBarras = codigoBarras; p.categoria = categoria; p.fotoUrl = in.fotoUrl; p.imagem = in.imagem;
         p.taxaPerdaPct = in.taxaPerdaPct; p.ncm = in.ncm; p.atalho = atalho;
         promocoes.aplicar(List.of(p));
         auditor.registrar("EDICAO", "Produto", id, "Produto alterado: " + p.nome, antes, p);

@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { useBalanca } from './balanca.js'
 import { enfileirar, sincronizar } from './offline.js'
+import { ImagemProduto } from './catalogoImagens.jsx'
+import { decodificarEtiqueta } from './etiqueta.js'
 
 const brl = n => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const dataCurta = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : ''
@@ -63,8 +65,21 @@ export default function PDV() {
     return true
   }
 
+  // ---- remover itens (registrado na auditoria: cancelamentos no caixa são controle de perdas) ----
+  const auditar = (descricao, antes) => fetch('/api/retaguarda/auditoria', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ acao: 'CANCELAMENTO', entidade: 'Item do caixa', entidadeId: null, descricao, antes: antes ? JSON.stringify(antes) : null, depois: null, usuario: null, perfil: null, origem: 'pdv-web' }) }).catch(() => {})
+  const removerItem = i => {
+    setItens(l => l.filter(x => x.uid !== i.uid))
+    auditar(`Item removido da venda em andamento: ${i.nome} (${i.quantidade.toFixed(3)} × ${brl(i.preco)} = ${brl(i.subtotal)})`, { nome: i.nome, quantidade: i.quantidade, subtotal: i.subtotal })
+    setMsg(`"${i.nome}" removido`); focarCampo()
+  }
+  const limparTudo = () => {
+    if (!itens.length || !window.confirm(`Remover todos os ${itens.length} itens da venda?`)) return
+    auditar(`Venda em andamento limpa: ${itens.length} itens, total ${brl(itens.reduce((s, i) => s + i.subtotal, 0))}`, { itens: itens.map(i => `${i.nome} ${i.quantidade.toFixed(3)} = ${brl(i.subtotal)}`) })
+    setItens([]); setMsg('Venda limpa'); focarCampo()
+  }
+
   // ---- leitor de código de barras ----
-  const dv13 = s => (10 - [...s].reduce((t, c, i) => t + +c * (i % 2 ? 3 : 1), 0) % 10) % 10
   const bip = ok => {
     try {
       if (!bipCtx.current) bipCtx.current = new (window.AudioContext || window.webkitAudioContext)()
@@ -77,9 +92,10 @@ export default function PDV() {
     const t = txt.trim(); if (!t) return null
     const direto = produtos.find(p => p.codigoBarras && p.codigoBarras.trim() === t)
     if (direto) return { p: direto }
-    if (/^2\d{12}$/.test(t) && dv13(t.slice(0, 12)) === +t[12]) {
-      const p = produtos.find(x => x.plu === +t.slice(1, 7))
-      if (p) { const q = (+t.slice(7, 12) / 100) / preco(p); return { p, quantidade: p.unidade === 'KG' ? +q.toFixed(3) : Math.max(1, Math.round(q)) } }
+    const dec = decodificarEtiqueta(t)            // etiqueta de balança computadora (ex.: Toledo Prix) ou gerada em Etiquetas
+    if (dec) {
+      const p = produtos.find(x => x.plu === dec.plu)
+      if (p) { const q = dec.peso != null ? dec.peso : dec.valor / preco(p); return { p, quantidade: p.unidade === 'KG' ? +q.toFixed(3) : Math.max(1, Math.round(q)) } }
     }
     if (aceitaPlu && /^\d{1,6}$/.test(t)) { const p = produtos.find(x => x.plu === +t); if (p) return { p } }
     return null
@@ -96,7 +112,7 @@ export default function PDV() {
     const r = v.length >= 8 ? identificar(v, false) : null
     if (r) { lancar(r); setCodigo('') } else setCodigo(v)
   }
-  const focarCampo = () => setTimeout(() => campo.current?.focus(), 0)
+  const focarCampo = () => setTimeout(() => { if (!document.querySelector('.modal')) campo.current?.focus() }, 0)
   useEffect(() => { focarCampo(); window.addEventListener('focus', focarCampo); return () => window.removeEventListener('focus', focarCampo) }, [])
 
   // Teclado: F4 foca o código de barras · Ctrl+tecla do produto · Tab/Shift+Tab troca a aba · F2 paga
@@ -161,7 +177,7 @@ export default function PDV() {
               <button key={p.id + (piscando ? '-' + flash.n : '')} className={`card ${promo ? 'promo' : ''} ${n ? 'no-carrinho' : ''} ${piscando ? 'flash' : ''}`} onClick={() => adicionar(p)}>
                 {promo && <span className="ribbon">PROMO{p.descontoPct ? ` −${Number(p.descontoPct).toFixed(0)}%` : ''}</span>}
                 {n > 0 && <span className="qtd-badge" title="Linhas deste produto na venda atual">{n}</span>}
-                {p.fotoUrl ? <img src={p.fotoUrl} alt="" width="80" height="80" /> : <div className="emoji">🥬</div>}
+                <div className="emoji"><ImagemProduto p={p} size={64} /></div>
                 <div><span className="plu-tag">{p.plu}</span>{p.atalho && <span className="atalho-tag">Ctrl+{p.atalho}</span>} {p.nome}</div>
                 <div className="preco">{promo && <s>{brl(p.precoVarejo)}</s>} {brl(preco(p))}/{p.unidade}</div>
                 {promo && p.promocaoFim && <small className="eco">promoção até {dataCurta(p.promocaoFim)}</small>}
@@ -170,13 +186,16 @@ export default function PDV() {
         </div>
       </section>
       <aside className="side">
-        <input placeholder="CPF na nota (fidelidade)" value={cpf} onChange={e => setCpf(e.target.value)} />
+        <div className="campo-x">
+          <input placeholder="CPF na nota (fidelidade)" value={cpf} onChange={e => setCpf(e.target.value)} />
+          {itens.length > 0 && <button className="x-limpar" title="Limpar todos os itens da venda" onClick={limparTudo}>✕</button>}
+        </div>
         <ul>
           {itens.map((i, k) => <li key={i.uid} className={`${k === itens.length - 1 ? 'ultimo' : ''} ${i.promo ? 'item-promo' : ''}`}>
             <span>{i.nome} {i.promo && <span className="promo-tag">PROMO</span>}<br />
               <small>{i.quantidade.toFixed(3)} × {i.promo && <s>{brl(i.precoOriginal)}</s>} {brl(i.preco)}</small>
               {i.promo && <><br /><small className="eco">desconto −{brl(i.desconto)}</small></>}</span>
-            <b>{brl(i.subtotal)}</b></li>)}
+            <span className="li-dir"><b>{brl(i.subtotal)}</b><button className="x-item" title="Remover este item" onClick={() => removerItem(i)}>×</button></span></li>)}
           <li ref={fim} style={{ height: 0, padding: 0, border: 0, animation: 'none' }} />
         </ul>
         {descontoTotal > 0 && <div className="resumo"><div>Sem promoções: <s>{brl(total + descontoTotal)}</s></div><div className="eco">Desconto das promoções: −{brl(descontoTotal)}</div></div>}
@@ -187,23 +206,54 @@ export default function PDV() {
     </div>)
 }
 
+const MEIOS = [
+  { id: 'PIX', rot: 'PIX', tecla: 'F1' }, { id: 'DINHEIRO', rot: 'Dinheiro', tecla: 'F2' }, { id: 'CREDITO', rot: 'Crédito', tecla: 'F3' },
+  { id: 'DEBITO', rot: 'Débito', tecla: 'F4' }, { id: 'VALE_ALIMENTACAO', rot: 'Vale-alimentação', tecla: 'F5' }, { id: 'VALE_REFEICAO', rot: 'Vale-refeição', tecla: 'F6' },
+]
+
+/** Pagamento. Atalhos: F1–F6 (ou 1–6) forma de pagamento · F7 valor exato · F8/F9 notas sugeridas · Enter confirma · Esc volta */
 function Pagamento({ total, desconto = 0, onOk, onCancel }) {
-  const [meio, setMeio] = useState('PIX'); const [recebido, setRecebido] = useState(total)
-  const meios = ['PIX', 'DINHEIRO', 'CREDITO', 'DEBITO', 'VALE_ALIMENTACAO', 'VALE_REFEICAO']
+  const [meio, setMeio] = useState('PIX'); const [recebido, setRecebido] = useState(total); const campo = useRef(null); const enviado = useRef(false)
   const troco = meio === 'DINHEIRO' ? Math.max(0, recebido - total) : 0
+  const pode = meio !== 'DINHEIRO' || recebido >= total
+  const sugestoes = [...new Set([Math.ceil(total / 10) * 10, Math.ceil(total / 50) * 50, Math.ceil(total / 100) * 100])].filter(v => v > total).slice(0, 2)
+  const confirmar = () => {
+    if (!pode || enviado.current) return
+    enviado.current = true; setTimeout(() => { enviado.current = false }, 1500)     // evita duplo Enter
+    onOk([{ meio, valor: meio === 'DINHEIRO' ? recebido : total }])
+  }
+  useEffect(() => { if (meio === 'DINHEIRO') { campo.current?.focus(); campo.current?.select() } }, [meio])
+  useEffect(() => {
+    const h = e => {
+      const emInput = e.target.tagName === 'INPUT'
+      const f = MEIOS.find(m => m.tecla === e.key)
+      if (f) { e.preventDefault(); setMeio(f.id); return }
+      if (e.key === 'F7') { e.preventDefault(); setMeio('DINHEIRO'); setRecebido(total); return }
+      if ((e.key === 'F8' || e.key === 'F9') && sugestoes[e.key === 'F8' ? 0 : 1]) { e.preventDefault(); setMeio('DINHEIRO'); setRecebido(sugestoes[e.key === 'F8' ? 0 : 1]); return }
+      if (e.key === 'Escape') { e.preventDefault(); onCancel(); return }
+      if (e.key === 'Enter') { e.preventDefault(); confirmar(); return }
+      if (!emInput && /^[1-6]$/.test(e.key)) setMeio(MEIOS[+e.key - 1].id)
+    }
+    window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h)
+  })
   return (
-    <div className="modal">
-      <div>
+    <div className="modal" role="dialog" aria-label="Pagamento">
+      <div className="pag">
         <img src="/logo.png" alt="" style={{ height: 48, borderRadius: 6 }} />
         <h2>Total {brl(total)}</h2>
         {desconto > 0 && <p className="eco">Você economizou {brl(desconto)} em promoções 🎉</p>}
-        <div className="meios">{meios.map(m => <button key={m} className={m === meio ? 'on' : ''} onClick={() => setMeio(m)}>{m.replace('_', ' ')}</button>)}</div>
+        <div className="meios">{MEIOS.map(m => <button key={m.id} className={m.id === meio ? 'on' : ''} onClick={() => setMeio(m.id)}><kbd>{m.tecla}</kbd> {m.rot}</button>)}</div>
         {meio === 'PIX' && <div style={{ textAlign: 'center', margin: 12 }}>
           {/* Troque o payload pelo "copia e cola" gerado pelo pagamento-service (PIX dinâmico via PSP) */}
-          <QRCodeSVG value={`PIX-DEMO|valor=${total.toFixed(2)}`} size={200} fgColor="#066b43" /><p>Aguardando confirmação…</p></div>}
-        {meio === 'DINHEIRO' && <p>Recebido: <input type="number" value={recebido} onChange={e => setRecebido(+e.target.value)} /> Troco: <b>{brl(troco)}</b></p>}
-        <button className="btn" onClick={() => onOk([{ meio, valor: meio === 'DINHEIRO' ? recebido : total }])}>Confirmar</button>{' '}
-        <button className="btn sec" onClick={onCancel}>Voltar</button>
+          <QRCodeSVG value={`PIX-DEMO|valor=${total.toFixed(2)}`} size={190} fgColor="#066b43" /><p>Aguardando confirmação…</p></div>}
+        {meio === 'DINHEIRO' && <div style={{ margin: '12px 0' }}>
+          <label>Recebido: <input ref={campo} type="number" step="0.01" value={recebido} onChange={e => setRecebido(+e.target.value)} style={{ fontSize: 22, width: 150 }} /></label>
+          <div style={{ fontSize: 22, margin: '8px 0' }}>Troco: <b style={{ color: pode ? 'var(--verde-escuro)' : 'var(--vermelho)' }}>{pode ? brl(troco) : 'valor insuficiente'}</b></div>
+          <div className="meios"><button onClick={() => setRecebido(total)}><kbd>F7</kbd> Exato</button>
+            {sugestoes.map((v, k) => <button key={v} onClick={() => setRecebido(v)}><kbd>F{8 + k}</kbd> {brl(v)}</button>)}</div></div>}
+        <div><button className="btn" disabled={!pode} onClick={confirmar}>Confirmar <kbd>Enter</kbd></button>{' '}
+          <button className="btn sec" onClick={onCancel}>Voltar <kbd>Esc</kbd></button></div>
+        <small style={{ display: 'block', marginTop: 8, opacity: .7 }}>F1–F6 ou 1–6 escolhem a forma de pagamento</small>
       </div>
     </div>)
 }
