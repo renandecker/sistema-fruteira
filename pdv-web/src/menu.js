@@ -10,6 +10,8 @@ export const MENU = [
   ]},
   { grupo: 'Cadastros', itens: [
     { id: 'produtos', icone: '🍎', titulo: 'Produtos e preços', status: 'ok', perfil: 'supervisor' },
+    { id: 'categorias', icone: '🗂️', titulo: 'Categorias', status: 'ok', perfil: 'supervisor' },
+    { id: 'promocoes', icone: '🔥', titulo: 'Promoções', status: 'ok', perfil: 'supervisor' },
     { id: 'fornecedores', icone: '🚚', titulo: 'Fornecedores', status: 'ok', perfil: 'gerente', desc: 'Feirantes, produtores rurais e CEASA.' },
     { id: 'clientes', icone: '👥', titulo: 'Clientes e fidelidade', status: 'ok', perfil: 'supervisor', desc: 'Cadastro por CPF, pontos e cashback.' },
   ]},

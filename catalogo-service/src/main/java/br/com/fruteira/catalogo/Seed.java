@@ -1,6 +1,7 @@
 package br.com.fruteira.catalogo;
 
 import io.quarkus.runtime.StartupEvent;
+import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import jakarta.enterprise.event.Observes;
@@ -13,7 +14,7 @@ public class Seed {
     @ConfigProperty(name = "fruteira.seed", defaultValue = "false") boolean seed; // true só em dev
 
     @Transactional
-    void onStart(@Observes StartupEvent ev) {
+    void onStart(@Observes @Priority(10) StartupEvent ev) {
         if (!seed || Produto.count() > 0) return;
         criar("Banana Prata", Produto.Unidade.KG, "7.90", 1, "frutas", "8", "4.50");
         criar("Tomate Longa Vida", Produto.Unidade.KG, "9.90", 2, "legumes", "10", "5.50");

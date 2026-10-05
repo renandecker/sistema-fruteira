@@ -15,7 +15,7 @@ const dataBR = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : 
 /* ---------- Cadastros ---------- */
 // Teclas permitidas p/ Ctrl+tecla. Ficam de fora N, T e W: o navegador reserva Ctrl+N/T/W e a página não consegue interceptá-los.
 export const TECLAS = [...'0123456789ABCDEFGHIJKLMOPQRSUVXYZ']
-export function NovoProduto({ onSave, usados = [] }) {
+export function NovoProduto({ onSave, usados = [], categorias = [] }) {
   const ini = { nome: '', unidade: 'KG', categoria: '', precoVarejo: '', plu: '', atalho: '', taxaPerdaPct: 0, ncm: '', codigoBarras: '' }
   const [f, s, setF] = useForm(ini); const [msg, setMsg] = useState('')
   const salvar = () => post('/api/catalogo/produtos', { ...f, precoVarejo: +f.precoVarejo, plu: f.plu ? +f.plu : null, taxaPerdaPct: +f.taxaPerdaPct })
@@ -24,7 +24,8 @@ export function NovoProduto({ onSave, usados = [] }) {
     <div className="grid2" style={{ marginTop: 10 }}>
       <label>Nome<input value={f.nome} onChange={s('nome')} /></label>
       <label>Unidade<select value={f.unidade} onChange={s('unidade')}><option>KG</option><option>UN</option><option>MACO</option><option>CX</option></select></label>
-      <label>Categoria<input value={f.categoria} onChange={s('categoria')} /></label>
+      <label>Categoria <small>vira aba no PDV</small><select value={f.categoria} onChange={s('categoria')}><option value="">Sem categoria</option>
+        {categorias.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}</select></label>
       <label>Preço varejo<input type="number" value={f.precoVarejo} onChange={s('precoVarejo')} /></label>
       <label>PLU rápido<input type="number" value={f.plu} onChange={s('plu')} /></label>
       <label>Atalho no caixa (Ctrl + …) <small>opcional</small><select value={f.atalho} onChange={s('atalho')}><option value="">Sem atalho</option>

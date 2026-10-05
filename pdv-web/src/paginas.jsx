@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { NovoProduto, TECLAS } from './paginas2.jsx'
+import { useLista } from './lib.jsx'
 
 const brl = n => Number(n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const api = (p, o) => fetch(p, { headers: { 'Content-Type': 'application/json' }, ...o }).then(r => r.ok ? r.json().catch(() => ({})) : r.text().then(t => Promise.reject(t)))
@@ -21,15 +22,14 @@ export function EmBreve({ item }) {
 }
 
 export function Produtos() {
-  const [lista, recarregar] = useProdutos(true); const [pct, setPct] = useState({}); const [msg, setMsg] = useState('')
+  const [lista, recarregar] = useProdutos(true); const [categorias] = useLista('/api/catalogo/categorias'); const [msg, setMsg] = useState('')
   const [cat, setCat] = useState(''); const [margem, setMargem] = useState(40)
   const cats = [...new Set(lista.filter(p => p.ativo !== false).map(p => p.categoria).filter(Boolean))]
   const nDesativados = lista.filter(p => p.ativo === false).length
   const usados = lista.filter(p => p.ativo !== false && p.atalho).map(p => p.atalho)
-  const trocarAtalho = (p, v) => api(`/api/catalogo/produtos/${p.id}`, { method: 'PUT', body: JSON.stringify({ ...p, atalho: v || null }) })
-    .then(() => { setMsg(v ? `Atalho Ctrl+${v} definido para "${p.nome}"` : `Atalho removido de "${p.nome}"`); recarregar() }).catch(erro)
   const erro = e => setMsg(String(e) || 'Operação não permitida para o seu perfil')
-  const desc = (id, v) => post(`/api/catalogo/produtos/${id}/desconto-validade?pct=${v}`).then(recarregar).catch(erro)
+  const atualizar = (p, campos, ok) => api(`/api/catalogo/produtos/${p.id}`, { method: 'PUT', body: JSON.stringify({ ...p, ...campos }) })
+    .then(() => { setMsg(ok); recarregar() }).catch(erro)
   const ajustar = () => post(`/api/catalogo/produtos/categoria/${cat}/margem?margemPct=${margem}`)
     .then(n => { setMsg(`Preços recalculados (${n} produtos)`); recarregar() }).catch(erro)
   const desativar = p => window.confirm(`Desativar "${p.nome}"?\nEle some do PDV e das vendas, mas o histórico e a auditoria são mantidos (o PLU continua reservado). Somente o gerente vê e pode reativar.`)
@@ -37,24 +37,23 @@ export function Produtos() {
   const reativar = p => post(`/api/catalogo/produtos/${p.id}/reativar`).then(() => { setMsg(`"${p.nome}" reativado`); recarregar() }).catch(erro)
   return <Pagina titulo="🍎 Produtos e preços">
     <Aviso m={msg} />
-    <NovoProduto onSave={recarregar} usados={usados} />
+    <NovoProduto onSave={recarregar} usados={usados} categorias={categorias} />
     <div className="barra"><b>Margem por categoria/safra:</b>
       <select value={cat} onChange={e => setCat(e.target.value)}><option value="">Categoria…</option>{cats.map(c => <option key={c}>{c}</option>)}</select>
       <input type="number" value={margem} onChange={e => setMargem(e.target.value)} style={{ width: 70 }} /> %
       <button className="btn" disabled={!cat} onClick={ajustar}>Recalcular preços</button>
-      <small>preço = custo médio ÷ (1 − perda) × (1 + margem)</small></div>
+      <small>preço = custo médio ÷ (1 − perda) × (1 + margem). Promoções ficam na tela <b>Promoções</b>.</small></div>
     {nDesativados > 0 && <p><small>{nDesativados} produto(s) desativado(s) — visíveis somente para o gerente.</small></p>}
-    <table className="tab"><thead><tr><th>PLU</th><th>Atalho (Ctrl+)</th><th>Produto</th><th>Un.</th><th>Categoria</th><th>Custo médio</th><th>Perda %</th><th>Preço</th><th>Promoção</th><th>Ações</th></tr></thead>
+    <table className="tab"><thead><tr><th>PLU</th><th>Atalho (Ctrl+)</th><th>Produto</th><th>Un.</th><th>Categoria</th><th>Custo médio</th><th>Perda %</th><th>Preço</th><th>Ações</th></tr></thead>
       <tbody>{lista.map(p => <tr key={p.id} className={p.ativo === false ? 'inativo' : ''}><td>{p.plu}</td>
-        <td>{p.ativo === false ? (p.atalho ? `Ctrl+${p.atalho}` : '—') : <select value={p.atalho || ''} onChange={e => trocarAtalho(p, e.target.value)}>
+        <td>{p.ativo === false ? (p.atalho ? `Ctrl+${p.atalho}` : '—') : <select value={p.atalho || ''} onChange={e => atualizar(p, { atalho: e.target.value || null }, e.target.value ? `Atalho Ctrl+${e.target.value} definido para "${p.nome}"` : `Atalho removido de "${p.nome}"`)}>
           <option value="">—</option>{TECLAS.map(t => { const emUso = usados.includes(t) && p.atalho !== t; return <option key={t} value={t} disabled={emUso}>{t}{emUso ? ' (em uso)' : ''}</option> })}</select>}</td>
-        <td>{p.nome} {p.ativo === false && <span className="classe off">Desativado</span>}</td><td>{p.unidade}</td><td>{p.categoria}</td>
-        <td>{brl(p.custoMedio)}</td><td>{p.taxaPerdaPct}</td><td>{brl(p.precoVarejo)}</td><td>{p.precoPromocional ? brl(p.precoPromocional) : '—'}</td>
-        <td>{p.ativo === false ? <button className="btn sec" onClick={() => reativar(p)}>Reativar</button> : <>
-          <input type="number" placeholder="% val." style={{ width: 64 }} value={pct[p.id] ?? ''} onChange={e => setPct({ ...pct, [p.id]: e.target.value })} />{' '}
-          <button className="btn sec" disabled={!pct[p.id]} onClick={() => desc(p.id, pct[p.id])}>Desconto</button>{' '}
-          {p.precoPromocional && <button className="btn sec" onClick={() => desc(p.id, 0)}>Remover promo</button>}{' '}
-          <button className="btn sec" onClick={() => desativar(p)}>Desativar</button></>}</td></tr>)}</tbody></table>
+        <td>{p.nome} {p.ativo === false && <span className="classe off">Desativado</span>}</td><td>{p.unidade}</td>
+        <td>{p.ativo === false ? p.categoria : <select value={p.categoria || ''} onChange={e => atualizar(p, { categoria: e.target.value || null }, `Categoria de "${p.nome}" alterada`)}>
+          <option value="">Sem categoria</option>{p.categoria && !categorias.some(c => c.nome === p.categoria) && <option value={p.categoria}>{p.categoria} (desativada)</option>}
+          {categorias.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}</select>}</td>
+        <td>{brl(p.custoMedio)}</td><td>{p.taxaPerdaPct}</td><td>{brl(p.precoVarejo)}</td>
+        <td>{p.ativo === false ? <button className="btn sec" onClick={() => reativar(p)}>Reativar</button> : <button className="btn sec" onClick={() => desativar(p)}>Desativar</button>}</td></tr>)}</tbody></table>
   </Pagina>
 }
 

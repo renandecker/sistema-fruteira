@@ -3,6 +3,7 @@ package br.com.fruteira.catalogo;
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 
 @Entity
 public class Produto extends PanacheEntity {
@@ -10,7 +11,12 @@ public class Produto extends PanacheEntity {
     @Enumerated(EnumType.STRING) public Unidade unidade = Unidade.KG; // KG, UN, MACO, CX
     public BigDecimal precoVarejo;
     public BigDecimal precoAtacado;
-    public BigDecimal precoPromocional;      // "sacolão do dia" / desconto por validade
+    // Promoção vigente (calculada a partir da tela Promoções; NÃO é gravada no produto)
+    @Transient public BigDecimal precoPromocional;
+    @Transient public Long promocaoId;
+    @Transient public LocalDate promocaoFim;
+    @Transient public String promocaoDescricao;
+    @Transient public BigDecimal descontoPct;
     @Column(unique = true) public Integer plu;   // atalho numérico rápido (1 = Banana Prata)
     public String codigoBarras;
     @Column(length = 1) public String atalho;   // opcional: 1 número (0-9) ou letra (A-Z) usado com Ctrl no PDV

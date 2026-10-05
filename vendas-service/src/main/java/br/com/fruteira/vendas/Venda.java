@@ -23,6 +23,8 @@ public class Venda extends PanacheEntity {
         @ManyToOne @JsonIgnore public Venda venda;
         public Long produtoId; public String nome;
         public BigDecimal quantidade, precoUnit, subtotal, custoUnit;
+        public BigDecimal precoOriginal, descontoTotal;   // desconto de promoção desta linha
+        public String promocao;
     }
     @Entity(name = "PagamentoVenda")
     public static class Pagamento extends PanacheEntity {

@@ -75,3 +75,28 @@ a.btn{text-decoration:none;display:inline-block}h3{color:var(--verde-escuro)}
 .mini{font-size:13px;box-shadow:none;margin:6px 0}.mini th{background:var(--verde-escuro)}.barra label{display:flex;flex-direction:column;font-size:12px;font-weight:600;gap:2px}
 .off{background:#8d6e63}.inativo td{opacity:.55;background:#efe9e6}.inativo td:last-child{opacity:1}
 .atalho-tag{background:var(--verde-escuro);color:#fff;border-radius:6px;padding:0 6px;font-size:12px;margin-left:4px;white-space:nowrap}
+
+/* PDV: abas, destaque e promoções */
+.abas{display:flex;gap:6px;padding:8px 12px 0;align-items:center;flex-wrap:wrap;border-bottom:3px solid var(--verde)}
+.abas button{padding:8px 18px;border:2px solid var(--verde);border-bottom:0;border-radius:10px 10px 0 0;background:#fff;color:var(--verde-escuro);font-weight:700;font-size:15px;cursor:pointer}
+.abas button.on{background:var(--verde);color:#fff}
+.abas small{margin-left:auto;opacity:.7;padding-bottom:6px}
+.card{position:relative}
+.card.promo{border-color:var(--vermelho)}
+.ribbon{position:absolute;top:8px;right:-6px;background:var(--vermelho);color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px 0 0 6px;box-shadow:0 1px 3px #0003}
+.qtd-badge{position:absolute;top:-8px;left:-8px;background:var(--verde-escuro);color:#fff;border-radius:50%;min-width:24px;height:24px;display:grid;place-items:center;font-weight:700;font-size:13px;box-shadow:0 1px 3px #0004}
+.card.no-carrinho{border-color:var(--verde);background:#f1faf4}
+.card.flash{animation:piscar 1.5s ease-out}
+@keyframes piscar{0%{transform:scale(1.09);box-shadow:0 0 0 6px #ffd54f;background:#fff59d}60%{box-shadow:0 0 0 6px #ffd54f66}100%{transform:scale(1)}}
+.side li{animation:entrar .5s ease-out}
+@keyframes entrar{from{background:#ffeb3b;transform:translateX(14px)}to{transform:none}}
+.side li.ultimo{background:#fff9c4;border-left:5px solid var(--vermelho);padding-left:8px}
+.promo-tag{background:var(--vermelho);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;white-space:nowrap}
+.eco{color:var(--vermelho-escuro);font-weight:600}
+.resumo{font-size:14px;margin-top:4px}
+
+/* leitor de código de barras */
+.leitor{display:flex;flex-direction:column;gap:2px;flex:1;max-width:520px;font-size:12px;font-weight:600}
+.leitor input{padding:10px 14px;font-size:20px;border-radius:10px;border:3px solid #fff;outline:none;background:#fff;color:var(--verde-escuro);font-family:monospace;letter-spacing:1px}
+.leitor input:focus{border-color:#ffd54f;box-shadow:0 0 0 3px #ffd54f88}
+.leitor kbd{background:#0004;border-radius:4px;padding:0 6px;font-size:11px}

@@ -94,6 +94,21 @@ Usuários criados na primeira execução do retaguarda-service (usuário = senha
 
 **Troque as senhas** em Configurações → Usuários e perfis. Após um login bem-sucedido o computador guarda um hash local, permitindo entrar com a rede fora do ar (modo offline do PDV). O controle por perfil hoje é feito no front; o backend ainda não valida permissões.
 
+## Categorias, promoções e PDV
+- **Categorias** (Cadastros → Categorias): o cadastro de produto agora escolhe a categoria numa lista. Renomear uma categoria renomeia também seus produtos; ▲▼ define a ordem das abas. Categorias já usadas em produtos antigos são criadas automaticamente na primeira subida.
+- **PDV em abas:** uma aba por categoria (mais **Todos** e **Outros**). **Tab / Shift+Tab** troca de aba — o `Alt+Tab` é reservado pelo sistema operacional e uma página web não consegue capturá-lo, por isso o caixa usa Tab (também dá para clicar na aba).
+- **Mais comprados primeiro:** os produtos de cada aba são ordenados pelo número de vendas (`GET /vendas/ranking`), atualizado a cada venda concluída.
+- **Destaque:** ao clicar, usar PLU+Enter ou **Ctrl+tecla**, o botão do produto pisca, ganha um contador de linhas na venda e o item novo aparece destacado na lista da direita.
+- **Promoções** (Cadastros → Promoções): marque vários produtos, escolha **% de desconto** ou **preço promocional** e defina o **prazo** (início e fim; atalhos Só hoje/3/7/15 dias). Uma promoção por produto por período (sem sobreposição); edição, desativação e reativação (gerente) com auditoria. O preço promocional é **calculado em tempo real** e deixou de existir no cadastro do produto.
+- **No caixa:** produto em promoção mostra a faixa **PROMO −x%**, preço antigo riscado, preço novo e a data final; na lista aparece a etiqueta PROMO, o desconto da linha e o total economizado. O desconto é calculado pelo servidor (a venda grava preço original e desconto por item) e vale só dentro do prazo.
+
+## Leitor de código de barras (topo do PDV)
+- O campo **Código de barras** fica no topo, já focado ao abrir o caixa e volta ao foco após cada lançamento e após o pagamento. **F4** leva o cursor até ele de qualquer lugar da tela (Esc limpa).
+- **Ctrl+Tab não é possível:** o navegador reserva essa combinação (troca de abas do navegador) e uma página web não consegue capturá-la; por isso o atalho é **F4**.
+- **Identificou, lançou:** ao reconhecer o código (8+ dígitos) o produto entra na venda na hora, sem Enter, com bip de confirmação (grave = não encontrado). Enter também funciona e aceita **PLU**.
+- Reconhece (1) o **código de barras cadastrado** no produto (único entre os ativos), e (2) as **etiquetas EAN-13 de peso/preço variável** geradas em *Etiquetas* (`2` + PLU + valor + DV): o produto entra com a quantidade calculada pelo valor da etiqueta. Produto por kg lido pelo código de barras cadastrado ainda exige peso na balança.
+- Com tela de toque o campo usa `inputMode="none"` (não abre o teclado virtual); leitores USB/Bluetooth no modo "teclado" funcionam sem configuração.
+
 ## Atalhos do PDV
 - **PLU + Enter** (digitando o número do produto) e **F2** para pagar.
 - **Ctrl + tecla do produto** (opcional): no cadastro (ou na coluna *Atalho* da tela Produtos) escolha 1 número (0-9) ou letra (A-Z). No caixa, `Ctrl+B` lança o produto com a tecla B. Cada tecla é única entre os produtos ativos e aparece no botão do produto. Produto sem atalho continua funcionando por clique e PLU.
@@ -113,7 +128,7 @@ Tela **Relatórios → Auditoria** (somente gerente): quem fez, quando, o quê e
 
 | O que é registrado | Ação |
 |---|---|
-| Produto (cadastro, edição, desconto por validade, reajuste de categoria) | Cadastro / Edição |
+| Produto (cadastro, edição, reajuste de categoria), categoria e promoção | Cadastro / Edição |
 | Entrada de estoque, produção/fracionamento | Cadastro / Edição |
 | Perdas e avarias (baixa manual) | Baixa de estoque |
 | Fornecedor, cliente, cotação, conta (lançar/baixar), usuário (criar/senha) | Cadastro / Edição |

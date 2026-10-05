@@ -6,10 +6,14 @@ import org.eclipse.microprofile.rest.client.annotation.RegisterClientHeaders;
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 
 public class Clients {
-    public record ProdutoDTO(Long id, String nome, String unidade, BigDecimal precoVarejo, BigDecimal precoAtacado, BigDecimal precoPromocional, BigDecimal custoMedio, Boolean ativo) {
+    public record ProdutoDTO(Long id, String nome, String unidade, BigDecimal precoVarejo, BigDecimal precoAtacado, BigDecimal precoPromocional,
+                             BigDecimal custoMedio, Boolean ativo, String promocaoDescricao) {
+        /** Preço normal (sem promoção) */
+        public BigDecimal precoBase(boolean atacado) { return atacado && precoAtacado != null ? precoAtacado : precoVarejo; }
+        /** Preço cobrado: a promoção vigente só vale se for mais barata que o preço normal */
         public BigDecimal preco(boolean atacado) {
-            if (precoPromocional != null) return precoPromocional;
-            return atacado && precoAtacado != null ? precoAtacado : precoVarejo;
+            BigDecimal base = precoBase(atacado);
+            return precoPromocional != null && precoPromocional.compareTo(base) < 0 ? precoPromocional : base;
         }
     }
     public record BaixaDTO(Long produtoId, BigDecimal quantidade, String tipo, String motivo) {}

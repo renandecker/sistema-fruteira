@@ -37,6 +37,10 @@ public class VendaResource {
             i.quantidade = ir.quantidade(); i.precoUnit = p.preco(req.atacado());
             i.custoUnit = p.custoMedio() == null ? BigDecimal.ZERO : p.custoMedio();
             i.subtotal = i.quantidade.multiply(i.precoUnit).setScale(2, RoundingMode.HALF_UP); // ex.: 0,350kg x 7,90
+            i.precoOriginal = p.precoBase(req.atacado());
+            i.descontoTotal = i.quantidade.multiply(i.precoOriginal.subtract(i.precoUnit)).setScale(2, RoundingMode.HALF_UP);
+            if (i.descontoTotal.signum() > 0) i.promocao = p.promocaoDescricao();
+            v.desconto = v.desconto.add(i.descontoTotal);
             v.total = v.total.add(i.subtotal); v.itens.add(i);
         }
         BigDecimal pago = BigDecimal.ZERO;
@@ -89,18 +93,27 @@ public class VendaResource {
             .map(e -> new Media(e.getKey(), nomes.get(e.getKey()), e.getValue().divide(n, 3, RoundingMode.HALF_UP)))
             .sorted(Comparator.comparing(Media::mediaQtd).reversed()).toList();
     }
+    /** Ranking de produtos mais comprados (nº de vendas e quantidade). O PDV ordena a lista de produtos por ele. */
+    public record Ranking(Long produtoId, long vendas, BigDecimal quantidade) {}
+    @GET @Path("/ranking")
+    public List<Ranking> ranking() {
+        List<Object[]> l = Item.getEntityManager().createQuery(
+            "select i.produtoId, count(i), sum(i.quantidade) from ItemVenda i where i.venda.status = :s group by i.produtoId order by count(i) desc, sum(i.quantidade) desc", Object[].class)
+            .setParameter("s", Venda.Status.PAGA).getResultList();
+        return l.stream().map(o -> new Ranking((Long) o[0], ((Number) o[1]).longValue(), (BigDecimal) o[2])).toList();
+    }
     /** Curva ABC simplificada: faturamento por produto, ordenado desc */
     @GET @Path("/relatorio/abc")
     public List<Object[]> abc() {
         return Item.getEntityManager().createQuery(
-            "select i.nome, sum(i.subtotal) from ItemVenda i where i.venda.status='PAGA' group by i.nome order by sum(i.subtotal) desc", Object[].class).getResultList();
+            "select i.nome, sum(i.subtotal) from ItemVenda i where i.venda.status = :s group by i.nome order by sum(i.subtotal) desc", Object[].class).setParameter("s", Venda.Status.PAGA).getResultList();
     }
     /** Sangria cega: operador informa o contado; sistema compara só no backoffice */
     public record Fechamento(BigDecimal contadoDinheiro) {}
     @POST @Path("/caixa/fechamento")
     public java.util.Map<String, Object> fechar(Fechamento f) {
         BigDecimal esperado = Pagamento.getEntityManager().createQuery(
-            "select coalesce(sum(p.valor),0) from PagamentoVenda p where p.meio='DINHEIRO' and p.venda.status='PAGA'", BigDecimal.class).getSingleResult();
+            "select coalesce(sum(p.valor),0) from PagamentoVenda p where p.meio='DINHEIRO' and p.venda.status = :s", BigDecimal.class).setParameter("s", Venda.Status.PAGA).getSingleResult();
         BigDecimal dif = f.contadoDinheiro().subtract(esperado);
         // fechamento cego: a diferença vai só para a trilha de auditoria (tela do gerente), nunca para o operador
         auditor.registrar("CADASTRO", "Fechamento de caixa", null, "Contado R$ " + f.contadoDinheiro() + " | esperado R$ " + esperado + " | diferença R$ " + dif, null, null);
