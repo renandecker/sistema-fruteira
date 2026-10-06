@@ -22,6 +22,7 @@ timeout /t 15 /nobreak >nul
 start "estoque-service :8082"  cmd /k "cd /d %~dp0estoque-service && mvn quarkus:dev -Ddebug=false"
 start "vendas-service :8083"   cmd /k "cd /d %~dp0vendas-service && mvn quarkus:dev -Ddebug=false"
 start "retaguarda-service :8084" cmd /k "cd /d %~dp0retaguarda-service && mvn quarkus:dev -Ddebug=false"
+start "tef-agent :8090" cmd /k "cd /d %~dp0tef-agent && mvn quarkus:dev -Ddebug=false"
 if not exist "%~dp0pdv-web\node_modules" ( pushd pdv-web & call npm install & popd )
 start "pdv-web :5173" cmd /k "cd /d %~dp0pdv-web && npm run dev -- --host"
 timeout /t 20 /nobreak >nul
@@ -52,7 +53,7 @@ echo Subindo PostgreSQL e Keycloak...
 docker compose -f docker-compose.prod.yml %PERFIL% up -d || ( pause & exit /b 1 )
 timeout /t 30 /nobreak >nul
 echo Compilando e iniciando microsservicos ^(producao^)...
-for %%S in (catalogo-service:8081 estoque-service:8082 vendas-service:8083 retaguarda-service:8084) do (
+for %%S in (catalogo-service:8081 estoque-service:8082 vendas-service:8083 retaguarda-service:8084 tef-agent:8090) do (
   for /f "tokens=1,2 delims=:" %%N in ("%%S") do (
     start "%%N :%%O" cmd /k "cd /d %~dp0%%N && mvn -q package -DskipTests && java -jar target\quarkus-app\quarkus-run.jar"
   )

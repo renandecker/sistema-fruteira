@@ -27,6 +27,17 @@ public class Auditor {
         if (o instanceof String s) return s;
         try { return mapper.writeValueAsString(o); } catch (Exception e) { return String.valueOf(o); }
     }
+    /** Login do usuário atual (token em produção; X-Usuario em desenvolvimento) */
+    public String usuario() {
+        if (identity != null && !identity.isAnonymous()) return identity.getPrincipal().getName();
+        String u = rc.request().getHeader("X-Usuario");
+        return u == null || u.isBlank() ? "desconhecido" : u;
+    }
+    public boolean supervisorOuMais() {
+        if (identity != null && !identity.isAnonymous()) return identity.getRoles().contains("gerente") || identity.getRoles().contains("supervisor");
+        String p = rc.request().getHeader("X-Perfil");
+        return "gerente".equalsIgnoreCase(p) || "supervisor".equalsIgnoreCase(p);
+    }
     public void registrar(String acao, String entidade, Object id, String descricao, Object antes, Object depois) {
         try {
             String usuario, perfil;

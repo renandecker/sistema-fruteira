@@ -31,5 +31,7 @@ public class Venda extends PanacheEntity {
         @ManyToOne @JsonIgnore public Venda venda;
         public String meio; // DINHEIRO, PIX, CREDITO, DEBITO, VALE_ALIMENTACAO, VALE_REFEICAO
         public BigDecimal valor;
+        // cartão via TEF (necessários à NFC-e)
+        public Long tefId; public String nsu, autorizacao, bandeira, adquirente, cnpjCredenciadora;
     }
 }

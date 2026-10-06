@@ -108,6 +108,24 @@ Usuários criados na primeira execução do retaguarda-service (usuário = senha
 - **Prix 4 Uno e etiquetadoras em geral:** relatos indicam que não transmitem o peso; a balança imprime a etiqueta e o caixa lê o **código de barras EAN-13** (prefixo 2). O formato (dígitos do código, preço total ou peso) é configurável e o código do item na balança deve ser o **PLU** do produto.
 - Produto por kg lido por etiqueta é aceito como peso automático (a etiqueta veio da balança).
 
+## TEF (cartões integrados à maquininha)
+O navegador não acessa o pinpad. O desenho segue o roteiro do `tef.txt`:
+
+```
+[ React (caixa) ] ── HTTP 127.0.0.1:8090 ──> [ Agente TEF local (tef-agent) ] ──> [ Provedor TEF / pinpad ]
+       │
+       └── HTTPS /api/vendas/tef ───────────> [ vendas-service: transações, vínculo com a venda ] ──> NFC-e (retaguarda)
+```
+- **Agente TEF** (`tef-agent`, porta 8090, escuta só em 127.0.0.1): roda no computador do caixa. Provedores pluggáveis (`TefProvider`): **simulador** (pronto) e **clisitef** (ponto de extensão *não implementado*: exige a DLL licenciada, contrato e homologação).
+- **Fluxo:** (1) o servidor cria a transação `PENDENTE` com a requisição única; (2) o caixa aciona o agente e mostra as mensagens do pinpad em tempo real (Insira o cartão → Digite a senha → Processando); (3) o resultado (NSU, autorização, bandeira, adquirente, CNPJ da credenciadora, comprovantes) é gravado no servidor; (4) a venda é gravada **vinculando** o `tefId` (o servidor confere valor e status); (5) imprime as vias do cliente e da loja e **confirma** no agente e no servidor. Se a venda for recusada, o cartão é **desfeito**.
+- **Pendências / queda:** ao abrir o caixa (e ao voltar a rede) o PDV **reconcilia**: transação aprovada com venda → confirma; sem venda → desfaz; sem retorno → marca erro. A tela **Financeiro e Fiscal → Transações TEF** mostra o estado do agente e do pinpad, as pendências, reimprime comprovantes e faz o **estorno** (supervisor/gerente). Venda paga com cartão TEF só pode ser cancelada depois do estorno.
+- **NFC-e:** os dados do cartão (tPag 03/04, CNPJ da credenciadora, tBand, nº de autorização, NSU) seguem com a emissão e aparecem na tela NFC-e. A NFC-e continua **simulada**; confira o mapeamento com seu emissor fiscal.
+- **Ligar:** Configurações → Balança e periféricos → *Integrado via Agente TEF local* (URL, token, terminal) e **Testar agente TEF**. `FRUTEIRA_TEF_OBRIGATORIO=true` exige TEF para crédito/débito; sem isso, a opção *maquininha manual* continua disponível se o agente cair.
+- **Segurança do agente:** só escuta em 127.0.0.1; CORS restrito à origem do front (`TEF_ORIGENS`/`FRONT_URL`); token obrigatório (`TEF_TOKEN`, cabeçalho `X-Tef-Token`) para que outras páginas abertas no navegador não acionem a maquininha; responde ao cabeçalho de rede privada do Chrome/Edge (front HTTPS → 127.0.0.1 é permitido, sem *mixed content*). Em produção use token longo.
+- **Simulador** (os **centavos** do valor definem o resultado): `,01` negada (saldo insuficiente) · `,02` negada (senha incorreta) · `,03` erro de comunicação · `,04` cancelada no pinpad · demais: aprovada. O comprovante sai marcado "SIMULADO — sem valor". O CNPJ da credenciadora é **fictício** no simulador; no TEF real vem do provedor.
+- **Roteiro de homologação** (o provedor exige): aprovada; negada (sem saldo/senha); cancelamento no meio (botão *Cancelar operação*); queda do agente/energia no meio (reinicie o agente com a transação em andamento → vira ERRO e a reconciliação trata); aprovada e venda recusada (cartão desfeito); estorno; reimpressão; via sem papel (a impressão é feita pelo navegador). Use o simulador para ensaiar e repita no pinpad homologado.
+- **Fora do escopo desta versão:** provedor real (CliSiTef/PayGo/Cappta), TEF totalmente offline, impressão direta em térmica pelo agente, WebSocket (o caixa consulta o agente a cada 0,5 s), TLS no agente.
+
 ## Pagamento em mais de uma forma
 No modal **Pagar**, divida o total em quantas formas precisar: escolha a forma (`F1`–`F6`/`1`–`6`), informe o valor e `Enter` (**Adicionar pagamento**); repita até cobrir o total (**Finalizar venda**). O modal mostra o que já foi pago e o que falta; `F7` preenche o restante, `Delete` ou o × remove um pagamento. Só **dinheiro** pode passar do que falta (gera troco); no cartão/PIX/vales o valor não pode exceder o restante. No dinheiro o sistema grava o valor **aplicado** à venda (sem o troco), o que mantém o fechamento de caixa correto.
 

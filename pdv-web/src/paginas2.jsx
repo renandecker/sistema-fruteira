@@ -4,6 +4,7 @@ import { brl, api, post, cfg, useProdutos, useLista, useForm, Pagina, Aviso, Sel
 import { useBalanca } from './balanca.js'
 import { PROD, KC } from './auth.js'
 import { abrirBalanca } from './balanca.js'
+import { agente, cartoesTexto } from './tef.js'
 import { codificarEtiqueta, formatoEtiqueta } from './etiqueta.js'
 import { ImagemProduto, SeletorImagem, IconeFruta, CATALOGO, sugerirImagem } from './catalogoImagens.jsx'
 
@@ -231,8 +232,8 @@ export function Nfce() {
       <tbody>{vendas.filter(v => v.status === 'PAGA' && !emitidas.has(v.id)).map(v => <tr key={v.id}><td>#{v.id}</td><td>{new Date(v.data).toLocaleString('pt-BR')}</td><td>{brl(v.total)}</td>
         <td><button className="btn" onClick={() => act(R + '/nfce/emitir', { vendaId: v.id, valor: v.total, cpf: v.cpf, contingencia: false })}>Emitir NFC-e</button></td></tr>)}</tbody></table>
     <h3>Notas</h3>
-    <table className="tab"><thead><tr><th>Nº</th><th>Venda</th><th>Chave</th><th>Valor</th><th>Status</th><th></th></tr></thead>
-      <tbody>{notas.map(n => <tr key={n.id}><td>{n.numero}</td><td>#{n.vendaId}</td><td style={{ fontSize: 11 }}>{n.chave}</td><td>{brl(n.valor)}</td>
+    <table className="tab"><thead><tr><th>Nº</th><th>Venda</th><th>Chave</th><th>Valor</th><th>Cartão (TEF)</th><th>Status</th><th></th></tr></thead>
+      <tbody>{notas.map(n => <tr key={n.id}><td>{n.numero}</td><td>#{n.vendaId}</td><td style={{ fontSize: 11 }}>{n.chave}</td><td>{brl(n.valor)}</td><td style={{ fontSize: 12 }}>{cartoesTexto(n.cartoes)}</td>
         <td><span className="classe" style={{ background: cor[n.status] }}>{n.status}</span></td>
         <td>{n.status === 'CONTINGENCIA' && <button className="btn sec" onClick={() => act(`${R}/nfce/${n.id}/transmitir`)}>Transmitir</button>}
           {n.status === 'AUTORIZADA' && <button className="btn sec" onClick={() => act(`${R}/nfce/${n.id}/cancelar`)}>Cancelar</button>}</td></tr>)}</tbody></table></Pagina>
@@ -360,8 +361,10 @@ const PRESETS = {
 }
 export function Perifericos() {
   const [f, setF] = useState({ protocolo: 'continuo', baud: 9600, dataBits: 8, parity: 'none', stopBits: 1, divisor: 1000, etiquetaCodigo: 6, etiquetaValor: 'preco',
-    tef: 'nenhum', impressora: 'Térmica 80mm (USB)', gaveta: 'sim', lat: '', lon: '', ...cfg() })
+    tef: 'nenhum', tefUrl: 'http://127.0.0.1:8090', tefToken: '', tefTerminal: 'PDV1', impressora: 'Térmica 80mm (USB)', gaveta: 'sim', lat: '', lon: '', ...cfg() })
   const [ok, setOk] = useState(false); const [t, setT] = useState({ ativo: false, peso: null, raw: [], erro: '' }); const ctl = useRef(null)
+  const [tt, setTt] = useState(null)
+  const testarTef = () => { setTt({ carregando: true }); agente.status(f).then(r => setTt({ ok: true, ...r })).catch(e => setTt({ ok: false, erro: String(e.message || e) })) }
   const s = k => e => { setF({ ...f, [k]: e.target.value }); setOk(false) }
   const preset = e => { const p = PRESETS[e.target.value]; if (p) { const { rot, ...c } = p; setF({ ...f, ...c }); setOk(false) } }
   const testar = async () => {
@@ -401,7 +404,18 @@ export function Perifericos() {
       <small>Vale para ler etiquetas das balanças no caixa e para gerar etiquetas na tela Etiquetas. O código do item na balança deve ser o PLU do produto.</small>
 
       <h3 style={{ margin: '8px 0 0' }}>Outros</h3>
-      <label>TEF / maquininha<select value={f.tef} onChange={s('tef')}><option value="nenhum">Manual (sem integração)</option><option value="paygo">PayGo</option><option value="sitef">SiTef</option></select></label>
+      <h3 style={{ margin: '8px 0 0' }}>TEF — cartões (agente local)</h3>
+      <label>TEF / maquininha<select value={f.tef === 'nenhum' ? 'nenhum' : 'agente'} onChange={s('tef')}><option value="nenhum">Manual (sem integração)</option><option value="agente">Integrado via Agente TEF local</option></select></label>
+      {f.tef !== 'nenhum' && <>
+        <div className="grid2">
+          <label>URL do agente<input value={f.tefUrl} onChange={s('tefUrl')} /></label>
+          <label>Token (igual ao TEF_TOKEN do agente)<input type="password" value={f.tefToken} onChange={s('tefToken')} /></label>
+          <label>Código do terminal<input value={f.tefTerminal} onChange={s('tefTerminal')} /></label></div>
+        <div><button className="btn sec" onClick={testarTef}>Testar agente TEF</button>{' '}
+          {tt?.carregando && <span>consultando…</span>}
+          {tt?.ok && <span>✔ provedor <b>{tt.provedor}</b> · pinpad {tt.pinpad ? 'conectado' : 'desconectado'}{tt.provedor === 'simulador' ? ' — SIMULADOR (não cobra de verdade)' : ''}</span>}
+          {tt && tt.ok === false && <span style={{ color: 'var(--vermelho)' }}>✖ {tt.erro}</span>}</div>
+        <small>O navegador não fala com o pinpad: o <b>agente TEF</b> (pasta tef-agent) roda neste computador e faz a ponte. Em página HTTPS, o Chrome só aceita chamar 127.0.0.1 (o agente já envia o cabeçalho de rede privada); use o token para que outras páginas não acionem a maquininha.</small></>}
       <label>Impressora<input value={f.impressora} onChange={s('impressora')} /></label>
       <label>Gaveta de dinheiro<select value={f.gaveta} onChange={s('gaveta')}><option value="sim">Abrir ao receber dinheiro</option><option value="nao">Não usa</option></select></label>
       <label>Latitude da loja (previsão do tempo)<input value={f.lat} onChange={s('lat')} placeholder="-30.0346" /></label>

@@ -29,6 +29,7 @@ public class Entities {
     @Entity public static class Nota extends PanacheEntity {
         public Long vendaId; public Integer numero; public String chave; public String protocolo;
         public String status; public String cpf; public BigDecimal valor; public LocalDateTime data = LocalDateTime.now();
+        @Column(length = 2000) public String cartoes;   // JSON: pagamentos em cartão (tPag, CNPJ credenciadora, bandeira, autorização, NSU)
     }
     @Entity public static class Auditoria extends PanacheEntity {
         public LocalDateTime data = LocalDateTime.now();

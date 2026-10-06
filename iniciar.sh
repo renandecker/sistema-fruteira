@@ -45,6 +45,8 @@ if [ "$APP_ENV" = producao ]; then
   else
     echo "ℹ Produção local SEM HTTPS (USE_NGINX=false). Para HTTPS real: USE_NGINX=true no .env."
   fi
+  [ "${TEF_PROVIDER:-simulador}" = simulador ] && echo "ℹ TEF em modo SIMULADOR (TEF_PROVIDER=simulador): não cobra cartão de verdade."
+  [ -z "${TEF_TOKEN:-}" ] && echo "⚠ TEF_TOKEN vazio: defina um token no .env e em Configurações do caixa (qualquer página aberta no navegador pode chamar o agente local)."
   echo "Gerando o front (dist)..."
   (cd pdv-web && { [ -d node_modules ] || npm install; } && npm run build) > logs/pdv-web.log 2>&1 || { echo "❌ Build do front falhou (logs/pdv-web.log)"; exit 1; }
   echo "Subindo PostgreSQL e Keycloak$([ "$USE_NGINX" = true ] && echo ' e nginx')..."
@@ -52,7 +54,7 @@ if [ "$APP_ENV" = producao ]; then
   aguardar keycloak 8180
 fi
 
-for s in catalogo-service:8081 estoque-service:8082 vendas-service:8083 retaguarda-service:8084; do
+for s in catalogo-service:8081 estoque-service:8082 vendas-service:8083 retaguarda-service:8084 tef-agent:8090; do
   nome=${s%%:*}; porta=${s##*:}
   echo "Iniciando $nome..."
   if [ "$APP_ENV" = producao ]; then

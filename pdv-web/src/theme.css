@@ -130,3 +130,13 @@ kbd{background:#0003;border-radius:4px;padding:0 5px;font-size:11px;font-family:
 .msg[role=status]{font-weight:600}
 .pags{list-style:none;padding:0;margin:6px 0}.pags li{display:flex;align-items:center;gap:10px;justify-content:space-between;background:var(--verde-claro);border-radius:8px;padding:6px 10px;margin-bottom:4px}
 .falta{font-size:18px;margin:4px 0}.falta b{color:var(--vermelho-escuro)}
+
+/* TEF */
+.modal.tef{z-index:1200}
+.tef-box{background:#fff;padding:28px 32px;border-radius:16px;min-width:420px;max-width:92vw;border-top:8px solid var(--verde);text-align:center}
+.tef-msg{font-size:26px;font-weight:700;color:var(--verde-escuro);margin:14px 0}
+.tef-passos{display:flex;gap:8px;justify-content:center;margin-bottom:8px}.tef-passos span{padding:4px 12px;border-radius:20px;background:#e8eee9;color:#789;font-size:13px}
+.tef-passos span.on{background:var(--verde);color:#fff;font-weight:700;animation:pulsar 1s infinite}
+@keyframes pulsar{50%{opacity:.6}}
+.tef-erro{font-size:20px;color:var(--vermelho-escuro);background:#fdecea;border-radius:10px;padding:14px;margin:10px 0}
+.comprovante pre{font:12px/1.3 monospace;width:300px;margin:0;white-space:pre-wrap}

@@ -18,7 +18,7 @@ import java.util.List;
 @Path("/nfce") @Produces(MediaType.APPLICATION_JSON) @Consumes(MediaType.APPLICATION_JSON)
 public class NfceResource {
     @Inject Auditor auditor;
-    public record Emitir(Long vendaId, BigDecimal valor, String cpf, boolean contingencia) {}
+    public record Emitir(Long vendaId, BigDecimal valor, String cpf, boolean contingencia, String cartoes) {}
 
     @GET public List<Nota> listar() { return Nota.find("order by id desc").list(); }
 
@@ -26,6 +26,7 @@ public class NfceResource {
     public Nota emitir(Emitir e) {
         Nota n = new Nota();
         n.vendaId = e.vendaId(); n.valor = e.valor(); n.cpf = e.cpf();
+        n.cartoes = e.cartoes() != null && e.cartoes().length() > 2000 ? e.cartoes().substring(0, 2000) : e.cartoes();
         n.numero = (int) Nota.count() + 1;
         n.chave = chave(n.numero);
         if (e.contingencia()) n.status = "CONTINGENCIA";          // sem rede: emite offline e transmite depois

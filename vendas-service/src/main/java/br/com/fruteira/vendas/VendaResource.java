@@ -19,10 +19,12 @@ public class VendaResource {
     @Inject @RestClient Clients.Estoque estoque;
     @Inject Auditor auditor;
     @ConfigProperty(name = "fruteira.gerente.pin") String pinGerente;
+    /** true = crédito/débito só pode ser pago com transação TEF aprovada */
+    @ConfigProperty(name = "fruteira.tef.obrigatorio", defaultValue = "false") boolean tefObrigatorio;
 
     /** pesoBalanca=true só pode ser enviado pelo agente de balança do PDV (leitura por cabo). */
     public record ItemReq(Long produtoId, BigDecimal quantidade, boolean pesoBalanca) {}
-    public record PagReq(String meio, BigDecimal valor) {}
+    public record PagReq(String meio, BigDecimal valor, Long tefId) {}
     public record VendaReq(String cpf, boolean atacado, List<ItemReq> itens, List<PagReq> pagamentos) {}
 
     @POST @Transactional
@@ -43,13 +45,23 @@ public class VendaResource {
             v.desconto = v.desconto.add(i.descontoTotal);
             v.total = v.total.add(i.subtotal); v.itens.add(i);
         }
-        BigDecimal pago = BigDecimal.ZERO;
+        BigDecimal pago = BigDecimal.ZERO; List<TefTransacao> tefs = new ArrayList<>();
         for (PagReq pr : req.pagamentos()) {
             Pagamento pg = new Pagamento(); pg.venda = v; pg.meio = pr.meio(); pg.valor = pr.valor();
+            boolean cartao = "CREDITO".equals(pr.meio()) || "DEBITO".equals(pr.meio());
+            if (pr.tefId() != null) {                                  // pagamento aprovado no TEF: confere e guarda NSU/autorização/bandeira
+                TefTransacao t = TefTransacao.findById(pr.tefId());
+                if (!cartao) throw Http.erro(422, "Transação TEF só pode pagar crédito ou débito");
+                if (t == null || !"APROVADA".equals(t.status) || t.vendaId != null) throw Http.erro(422, "Transação TEF inválida ou já utilizada");
+                if (t.valor.compareTo(pr.valor()) != 0) throw Http.erro(422, "O valor difere do aprovado no TEF (R$ " + t.valor + ")");
+                pg.tefId = t.id; pg.nsu = t.nsu; pg.autorizacao = t.autorizacao; pg.bandeira = t.bandeira; pg.adquirente = t.adquirente; pg.cnpjCredenciadora = t.cnpjCredenciadora;
+                tefs.add(t);
+            } else if (cartao && tefObrigatorio) throw Http.erro(422, "Pagamento em cartão exige transação TEF aprovada");
             pago = pago.add(pr.valor()); v.pagamentos.add(pg);
         }
         if (pago.compareTo(v.total) < 0) throw new WebApplicationException("Pagamento insuficiente", 422);
         v.status = Venda.Status.PAGA; v.persist();
+        tefs.forEach(t -> { t.vendaId = v.id; t.atualizadoEm = LocalDateTime.now(); });   // vincula o cartão à venda
         v.itens.forEach(i -> estoque.baixa(new BaixaDTO(i.produtoId, i.quantidade, "VENDA", "venda " + v.id)));
         return v;
     }
@@ -57,6 +69,8 @@ public class VendaResource {
     @POST @Path("/{id}/cancelar") @Transactional
     public Venda cancelar(@PathParam("id") Long id, @HeaderParam("X-Gerente-Pin") String pin) {
         if (!pinGerente.equals(pin)) throw new ForbiddenException("Requer autorização do gerente");
+        if (TefTransacao.count("vendaId = ?1 and status = ?2", id, "CONFIRMADA") > 0)
+            throw Http.erro(409, "Venda paga com cartão (TEF): estorne o cartão na tela Transações TEF antes de cancelar a venda");
         Venda v = Venda.findById(id); v.status = Venda.Status.CANCELADA;
         v.itens.forEach(i -> estoque.baixa(new BaixaDTO(i.produtoId, i.quantidade.negate(), "AJUSTE", "estorno venda " + id)));
         auditor.registrar("CANCELAMENTO", "Venda", id, "Venda #" + id + " cancelada (total R$ " + v.total + ")", null, null);
