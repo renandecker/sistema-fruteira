@@ -1,5 +1,8 @@
 # As variáveis ${FRONT_DOMAIN} e ${KEYCLOAK_DOMAIN} são preenchidas pelo contêiner a partir do .env.
 
+# Webhook do PSP (Pix): limita a taxa de chamadas por IP e o tamanho do corpo
+limit_req_zone $binary_remote_addr zone=pixwebhook:1m rate=20r/s;
+
 # ---------- HTTP -> HTTPS ----------
 server {
     listen 80 default_server;
@@ -29,6 +32,14 @@ server {
 
     # Nunca expor os endpoints internos do Quarkus (/q/swagger-ui, /q/health, ...)
     location ~ ^/api/[^/]+/q/ { return 404; }
+
+    # Webhook público do PSP (confira também o segredo no servidor; se o PSP tiver IPs fixos, restrinja aqui com allow/deny)
+    location = /api/vendas/pix/webhook {
+        limit_req zone=pixwebhook burst=40 nodelay;
+        client_max_body_size 64k;
+        proxy_pass http://host.docker.internal:8083/pix/webhook;
+        include /etc/nginx/snippets/proxy.conf;
+    }
 
     # Microsserviços Quarkus rodando no host (a barra final remove o prefixo /api/<serviço>)
     location /api/catalogo/    { proxy_pass http://host.docker.internal:8081/; include /etc/nginx/snippets/proxy.conf; }

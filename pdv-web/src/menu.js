@@ -28,6 +28,7 @@ export const MENU = [
   { grupo: 'Financeiro e Fiscal', itens: [
     { id: 'contas', icone: '💳', titulo: 'Contas a pagar/receber', status: 'ok', perfil: 'gerente', desc: 'Lançamentos, vencimentos e baixas.' },
     { id: 'tef', icone: '📟', titulo: 'Transações TEF', status: 'ok', perfil: 'supervisor' },
+    { id: 'pix', icone: '💠', titulo: 'Transações PIX', status: 'ok', perfil: 'supervisor' },
     { id: 'dre', icone: '📊', titulo: 'DRE e fluxo de caixa', status: 'ok', perfil: 'gerente', desc: 'DRE simplificado e fluxo diário/mensal.' },
     { id: 'nfce', icone: '🧮', titulo: 'NFC-e / SAT', status: 'ok', perfil: 'supervisor', desc: 'Emissão, contingência offline, cancelamento e reenvio.' },
   ]},

@@ -33,6 +33,10 @@ public class Auditor {
         String u = rc.request().getHeader("X-Usuario");
         return u == null || u.isBlank() ? "desconhecido" : u;
     }
+    public boolean gerente() {
+        if (identity != null && !identity.isAnonymous()) return identity.getRoles().contains("gerente");
+        return "gerente".equalsIgnoreCase(rc.request().getHeader("X-Perfil"));
+    }
     public boolean supervisorOuMais() {
         if (identity != null && !identity.isAnonymous()) return identity.getRoles().contains("gerente") || identity.getRoles().contains("supervisor");
         String p = rc.request().getHeader("X-Perfil");

@@ -5,6 +5,8 @@ import { enfileirar, sincronizar } from './offline.js'
 import { ImagemProduto } from './catalogoImagens.jsx'
 import { PROD } from './auth.js'
 import TefModal from './TefModal.jsx'
+import PixModal from './PixModal.jsx'
+import { pixAtivo, pixPendencias } from './pix.js'
 import { tefAtivo, desfazerTef, confirmarTef, imprimirComprovantes, reconciliar, cartoesNfce } from './tef.js'
 import { decodificarEtiqueta } from './etiqueta.js'
 
@@ -32,6 +34,7 @@ export default function PDV() {
   }
   useEffect(() => { carregar() }, [])
   useEffect(() => { reconciliar().then(r => r.resolvidas && setMsg(`${r.resolvidas} transação(ões) de cartão pendente(s) reconciliada(s)`)) }, [])   // TEF: resolve o que ficou no ar após queda
+  useEffect(() => { pixPendencias().then(n => n > 0 && setMsg(`⚠ ${n} Pix recebido(s) sem venda: veja Financeiro e Fiscal → Transações PIX`)) }, [])
   useEffect(() => { const on = () => { sincronizar(enviarVenda).then(() => reconciliar()); carregar() }; window.addEventListener('online', on); return () => window.removeEventListener('online', on) }, [])
   useEffect(() => { if (!flash) return; const t = setTimeout(() => setFlash(null), 1600); return () => clearTimeout(t) }, [flash])
   useEffect(() => { fim.current?.scrollIntoView({ block: 'nearest' }) }, [itens.length])
@@ -161,7 +164,7 @@ export default function PDV() {
   }
   async function finalizar(pagamentos) {
     const cartoes = pagamentos.filter(p => p.tefId)
-    const venda = { cpf, atacado: false, pagamentos: pagamentos.map(({ meio, valor, tefId }) => ({ meio, valor, ...(tefId ? { tefId } : {}) })),
+    const venda = { cpf, atacado: false, pagamentos: pagamentos.map(({ meio, valor, tefId, pixId }) => ({ meio, valor, ...(tefId ? { tefId } : {}), ...(pixId ? { pixId } : {}) })),
       itens: itens.map(i => ({ produtoId: i.produtoId, quantidade: i.quantidade, pesoBalanca: i.pesoBalanca })) }
     try {
       const v = await enviarVenda(venda); setMsg('Venda concluída ✔'); posVenda(v, venda.cpf); carregar()    // recarrega ranking e promoções
@@ -171,7 +174,7 @@ export default function PDV() {
       else {   // venda recusada: o que já foi aprovado no cartão precisa ser DESFEITO
         const falhas = (await Promise.all(cartoes.map(p => desfazerTef({ tefId: p.tefId, requisicao: p.tef?.requisicao })))).filter(r => !r.ok).length
         if (cartoes.length) setPagando(false)
-        return setMsg(String(e) + (cartoes.length ? (falhas ? ' — não foi possível desfazer algum cartão: veja Transações TEF.' : ' — os pagamentos em cartão foram desfeitos.') : ''))
+        return setMsg(String(e) + (pagamentos.some(p => p.pixId) ? ' — o Pix já foi recebido e continua reservado: tente finalizar de novo (ou devolva em Transações PIX).' : '') + (cartoes.length ? (falhas ? ' — não foi possível desfazer algum cartão: veja Transações TEF.' : ' — os pagamentos em cartão foram desfeitos.') : ''))
       }
     }
     setItens([]); setPagando(false); setCpf(''); focarCampo()
@@ -245,9 +248,9 @@ const rotulo = id => MEIOS.find(m => m.id === id)?.rot ?? id
  *  Com TEF ligado, crédito/débito são cobrados na maquininha (agente TEF) e só entram se aprovados.
  *  Atalhos: F1–F6 (ou 1–6) forma · F7 restante · F8/F9 notas sugeridas · Enter adiciona/finaliza · Delete remove o último · Esc volta */
 function Pagamento({ total, desconto = 0, onOk, onCancel }) {
-  const usaTef = tefAtivo()
+  const usaTef = tefAtivo(); const usaPix = pixAtivo()
   const [pags, setPags] = useState([]); const [meio, setMeio] = useState('PIX'); const [valor, setValor] = useState(total)
-  const [parcelas, setParcelas] = useState(1); const [tefTx, setTefTx] = useState(null); const [aviso, setAviso] = useState('')
+  const [parcelas, setParcelas] = useState(1); const [tefTx, setTefTx] = useState(null); const [pixTx, setPixTx] = useState(null); const [aviso, setAviso] = useState('')
   const campo = useRef(null); const enviado = useRef(false)
   const pago = pags.reduce((s, p) => s + c2(p.valor), 0)
   const restante = (c2(total) - pago) / 100
@@ -256,19 +259,22 @@ function Pagamento({ total, desconto = 0, onOk, onCancel }) {
   const aplicado = Math.min(v, restante)
   const cartao = meio === 'CREDITO' || meio === 'DEBITO'
   const troco = meio === 'DINHEIRO' ? Math.max(0, r2(v - restante)) : 0
-  const pode = v > 0 && (meio === 'DINHEIRO' || c2(v) <= c2(restante))
+  const completo = pags.length > 0 && c2(restante) === 0     // tudo pago (ex.: venda recusada depois do Pix recebido): permite finalizar de novo
+  const pode = completo || (v > 0 && (meio === 'DINHEIRO' || c2(v) <= c2(restante)))
   const sugestoes = [...new Set([Math.ceil(restante / 10) * 10, Math.ceil(restante / 50) * 50, Math.ceil(restante / 100) * 100])].filter(x => x > restante).slice(0, 2)
 
   const escolher = id => { setMeio(id); setAviso(''); if (id !== 'DINHEIRO' && v > restante) setValor(restante) }   // só dinheiro pode passar do restante (troco)
   const refazer = lista => { setPags(lista); setValor((c2(total) - lista.reduce((s, p) => s + c2(p.valor), 0)) / 100) }
   const adicionar = (novo, fecha) => {
-    if (fecha) { enviado.current = true; setTimeout(() => { enviado.current = false }, 1500); onOk([...pags, novo]) }   // dinheiro: grava o valor APLICADO (sem troco)
+    if (fecha) { enviado.current = true; setPags([...pags, novo]); Promise.resolve(onOk([...pags, novo])).finally(() => { enviado.current = false }) }   // trava só enquanto a venda é enviada   // dinheiro: grava o valor APLICADO (sem troco)
     else refazer([...pags, novo])
   }
   const confirmar = () => {
-    if (!pode || enviado.current || tefTx) return
+    if (!pode || enviado.current || tefTx || pixTx) return
+    if (completo) { enviado.current = true; Promise.resolve(onOk(pags)).finally(() => { enviado.current = false }); return }
     const novo = { meio, valor: r2(aplicado) }
     if (usaTef && cartao) { setAviso(''); setTefTx({ meio, valor: novo.valor, parcelas: meio === 'CREDITO' ? parcelas : 1, cobre }); return }   // cobra na maquininha
+    if (usaPix && meio === 'PIX') { setAviso(''); setPixTx({ valor: novo.valor, cobre }); return }          // gera a cobrança Pix no PSP
     adicionar(novo, cobre)
   }
   const aprovadoNoTef = r => {      // cartão aprovado: entra como pagamento com NSU/autorização/bandeira
@@ -278,8 +284,13 @@ function Pagamento({ total, desconto = 0, onOk, onCancel }) {
     const fecha = tefTx.cobre; setTefTx(null); adicionar(novo, fecha)
   }
   const manual = () => { const novo = { meio: tefTx.meio, valor: tefTx.valor }; const fecha = tefTx.cobre; setTefTx(null); adicionar(novo, fecha) }   // maquininha fora do TEF
+  const pixPago = r => {     // Pix confirmado pelo PSP: entra como pagamento (não dá para "desfazer": só devolução)
+    const novo = { meio: 'PIX', valor: pixTx.valor, pixId: r.pixId, pix: { txid: r.txid, endToEndId: r.endToEndId } }
+    const fecha = pixTx.cobre; setPixTx(null); adicionar(novo, fecha)
+  }
   const removerPag = async k => {
     const p = pags[k]
+    if (p.pixId) return setAviso('O Pix já foi recebido e não pode ser removido aqui. Para devolver o dinheiro, use Transações PIX (supervisor).')
     if (p.tefId) {
       if (!window.confirm(`Desfazer o pagamento em cartão (NSU ${p.tef?.nsu})?`)) return
       const r = await desfazerTef({ tefId: p.tefId, requisicao: p.tef?.requisicao })
@@ -288,6 +299,7 @@ function Pagamento({ total, desconto = 0, onOk, onCancel }) {
     refazer(pags.filter((_, i) => i !== k))
   }
   const sair = async () => {
+    if (pags.some(p => p.pixId) && !window.confirm('Há Pix já RECEBIDO nesta venda: voltar NÃO devolve o dinheiro (a devolução é em Transações PIX). Voltar mesmo assim?')) return
     const comTef = pags.filter(p => p.tefId)
     if (comTef.length) {
       if (!window.confirm('Há pagamentos em cartão já aprovados. Voltar vai DESFAZÊ-LOS. Continuar?')) return
@@ -296,10 +308,10 @@ function Pagamento({ total, desconto = 0, onOk, onCancel }) {
     }
     onCancel()
   }
-  useEffect(() => { if (!tefTx) { campo.current?.focus(); campo.current?.select() } }, [meio, pags.length, tefTx])
+  useEffect(() => { if (!tefTx && !pixTx) { campo.current?.focus(); campo.current?.select() } }, [meio, pags.length, tefTx, pixTx])
   useEffect(() => {
     const h = e => {
-      if (tefTx) return                                  // durante a cobrança no cartão o teclado fica com a janela do TEF
+      if (tefTx || pixTx) return                         // durante a cobrança (cartão/Pix) o teclado fica com a janela dela
       const emInput = e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT'
       const f = MEIOS.find(m => m.tecla === e.key)
       if (f) { e.preventDefault(); escolher(f.id); return }
@@ -312,18 +324,18 @@ function Pagamento({ total, desconto = 0, onOk, onCancel }) {
     }
     window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h)
   })
-  const rotBotao = usaTef && cartao ? `Cobrar ${brl(aplicado)} no cartão` : cobre ? 'Finalizar venda' : 'Adicionar pagamento'
+  const rotBotao = completo ? 'Finalizar venda' : usaPix && meio === 'PIX' ? `Gerar Pix de ${brl(aplicado)}` : usaTef && cartao ? `Cobrar ${brl(aplicado)} no cartão` : cobre ? 'Finalizar venda' : 'Adicionar pagamento'
   return (
     <div className="modal" role="dialog" aria-label="Pagamento">
       <div className="pag">
         <img src="/logo.png" alt="" style={{ height: 48, borderRadius: 6 }} />
         <h2>Total {brl(total)}</h2>
         {desconto > 0 && <p className="eco">Você economizou {brl(desconto)} em promoções 🎉</p>}
-        {pags.length > 0 && <ul className="pags">{pags.map((p, k) => <li key={k}><span>{rotulo(p.meio)}{p.tef && <small> · {p.tef.bandeira} · NSU {p.tef.nsu} · aut {p.tef.autorizacao}</small>}</span><b>{brl(p.valor)}</b>
+        {pags.length > 0 && <ul className="pags">{pags.map((p, k) => <li key={k}><span>{rotulo(p.meio)}{p.tef && <small> · {p.tef.bandeira} · NSU {p.tef.nsu} · aut {p.tef.autorizacao}</small>}{p.pixId && <small> · Pix recebido · {p.pix?.endToEndId}</small>}</span><b>{brl(p.valor)}</b>
           <button className="x-item" title="Remover este pagamento" onClick={() => removerPag(k)}>×</button></li>)}</ul>}
         <div className="falta">Pago: {brl(pago / 100)} · <b>Falta: {brl(restante)}</b></div>
         <div className="meios">{MEIOS.map(m => <button key={m.id} className={m.id === meio ? 'on' : ''} onClick={() => escolher(m.id)}><kbd>{m.tecla}</kbd> {m.rot}</button>)}</div>
-        {meio === 'PIX' && <div style={{ textAlign: 'center', margin: 8 }}>
+        {meio === 'PIX' && !usaPix && <div style={{ textAlign: 'center', margin: 8 }}>
           {/* Troque o payload pelo "copia e cola" gerado pelo pagamento-service (PIX dinâmico via PSP) */}
           <QRCodeSVG value={`PIX-DEMO|valor=${aplicado.toFixed(2)}`} size={150} fgColor="#066b43" /><p style={{ margin: 4 }}>PIX de {brl(aplicado)} — aguardando confirmação…</p></div>}
         <div style={{ margin: '10px 0' }}>
@@ -332,13 +344,15 @@ function Pagamento({ total, desconto = 0, onOk, onCancel }) {
           {meio === 'DINHEIRO' && <div style={{ fontSize: 22, margin: '6px 0' }}>Troco: <b style={{ color: pode ? 'var(--verde-escuro)' : 'var(--vermelho)' }}>{pode ? brl(troco) : 'valor inválido'}</b></div>}
           {meio !== 'DINHEIRO' && v > restante && <div style={{ color: 'var(--vermelho)' }}>O valor passa do que falta ({brl(restante)}).</div>}
           {usaTef && cartao && <small style={{ display: 'block' }}>💳 Cobrança integrada (TEF): a maquininha será acionada.</small>}
+          {usaPix && meio === 'PIX' && <small style={{ display: 'block' }}>💠 Pix integrado: o QR Code é gerado ao confirmar e o pagamento é reconhecido automaticamente.</small>}
           <div className="meios"><button onClick={() => setValor(restante)}><kbd>F7</kbd> Restante {brl(restante)}</button>
             {meio === 'DINHEIRO' && sugestoes.map((x, k) => <button key={x} onClick={() => setValor(x)}><kbd>F{8 + k}</kbd> {brl(x)}</button>)}</div></div>
         {aviso && <div className="msg" role="alert" style={{ margin: '0 0 8px' }}>{aviso}</div>}
-        <div><button className="btn" disabled={!pode || !!tefTx} onClick={confirmar}>{rotBotao} <kbd>Enter</kbd></button>{' '}
+        <div><button className="btn" disabled={!pode || !!tefTx || !!pixTx} onClick={confirmar}>{rotBotao} <kbd>Enter</kbd></button>{' '}
           <button className="btn sec" onClick={sair}>Voltar <kbd>Esc</kbd></button></div>
         <small style={{ display: 'block', marginTop: 8, opacity: .7 }}>F1–F6 ou 1–6 escolhem a forma · divida o valor em quantas formas precisar · Delete remove o último</small>
       </div>
+      {pixTx && <PixModal valor={pixTx.valor} onPago={pixPago} onFechar={() => setPixTx(null)} />}
       {tefTx && <TefModal valor={tefTx.valor} meio={tefTx.meio} parcelas={tefTx.parcelas} onAprovada={aprovadoNoTef} onManual={manual} onFechar={() => setTefTx(null)} />}
     </div>)
 }

@@ -126,6 +126,24 @@ O navegador não acessa o pinpad. O desenho segue o roteiro do `tef.txt`:
 - **Roteiro de homologação** (o provedor exige): aprovada; negada (sem saldo/senha); cancelamento no meio (botão *Cancelar operação*); queda do agente/energia no meio (reinicie o agente com a transação em andamento → vira ERRO e a reconciliação trata); aprovada e venda recusada (cartão desfeito); estorno; reimpressão; via sem papel (a impressão é feita pelo navegador). Use o simulador para ensaiar e repita no pinpad homologado.
 - **Fora do escopo desta versão:** provedor real (CliSiTef/PayGo/Cappta), TEF totalmente offline, impressão direta em térmica pelo agente, WebSocket (o caixa consulta o agente a cada 0,5 s), TLS no agente.
 
+## PIX (cobrança dinâmica + confirmação automática)
+Segue o roteiro do `pix.txt`: o React nunca fala com o PSP; o servidor Java guarda chaves/certificados e conversa com o PSP.
+
+```
+[ React (caixa) ] ─ POST /pix/cobrancas ─> [ vendas-service ] ─ PUT /v2/cob ─> [ PSP / banco ]
+       ▲   polling a cada 3 s (GET)             ▲                                     │ cliente paga
+       └──────────── status ────────────────────┴──── POST /pix/webhook <────────────┘ (CONCLUIDA)
+```
+- **Fluxo:** (1) o caixa pede o Pix; (2) o servidor cria a cobrança no PSP (`txid` de 32 caracteres, expiração `PIX_EXPIRACAO_SEG`, 300 s) e devolve o **Pix Copia e Cola**; (3) o caixa mostra o **QR Code**, o código com botão **Copiar** (retorno visual) e a contagem regressiva; (4) o PSP chama o **webhook** quando o cliente paga; (5) o caixa, em polling, vê `CONCLUIDA` e a venda é gravada **vinculando** o Pix (o servidor confere status e valor exato).
+- **Webhook (`POST /pix/webhook`, público):** protegido por **segredo** (`FRUTEIRA_PIX_WEBHOOK_SEGREDO`, cabeçalho `X-Webhook-Token` ou `?token=`; sem segredo o servidor recusa fora do simulador) e, no nginx, limite de taxa. É **idempotente**: o `endToEndId` é único, notificação repetida não reprocessa. Se o PSP tiver mTLS no webhook, valide o certificado no proxy.
+- **Rede de segurança:** se o webhook não chegar, o servidor confere a cobrança no PSP a cada 10 s enquanto o caixa consulta. Cobrança vencida vira `EXPIRADA`; pagamento que chega depois de expirar/cancelar **vale como pago** (o dinheiro entrou).
+- **Pix recebido sem venda** (caixa travou/venda recusada): fica **reservado** — o caixa não gera outro QR (evita cobrar duas vezes) e permite finalizar de novo; também aparece em *Transações PIX* e como aviso ao abrir o caixa. Pix **não se "desfaz"**: só **devolução** (supervisor/gerente). Venda paga com Pix só pode ser cancelada **depois da devolução**.
+- **Tela** *Financeiro e Fiscal → Transações PIX*: provedor, pendências, cancelar cobrança, devolver. **NFC-e:** o Pix entra como tPag 17 com o `endToEndId`.
+- **Simulador** (`PIX_PROVIDER=simulador`, padrão): gera Pix Copia e Cola no formato BR Code (CRC16 verificado; a URL é fictícia, app bancário real recusa), paga sozinho após 6 s chamando o próprio webhook (mesmo caminho do PSP) e tem o botão **Simular pagamento do cliente**. Os **centavos** do valor: `,01` nunca paga (veja a expiração) · `,03` webhook duplicado (idempotência).
+- **PSP real** (`PIX_PROVIDER=psp`): provedor genérico da **API Pix do Banco Central** (`PUT /v2/cob/{txid}`, consulta, `PATCH` cancelamento, `PUT /v2/pix/{e2e}/devolucao/{id}`, `PUT /v2/webhook/{chave}`), OAuth2 e mTLS por `.p12`. Configure `PIX_PSP_URL`, `PIX_PSP_CLIENT_ID/SECRET`, `PIX_CHAVE`, `PIX_PSP_CERTIFICADO` e registre o webhook (botão em Configurações → PIX, gerente). **Não foi testado contra um PSP real:** valide em **sandbox** (formato do token, escopos e cabeçalhos variam por PSP; para outro, implemente `PixProvider`).
+- **Ligar no caixa:** Configurações → Balança e periféricos → PIX → *Integrado ao PSP*. `FRUTEIRA_PIX_OBRIGATORIO=true` recusa PIX sem confirmação do PSP.
+- **Fora do escopo:** SSE/WebSocket (hoje é polling), QR na tela do cliente, devolução parcial, conciliação por extrato.
+
 ## Pagamento em mais de uma forma
 No modal **Pagar**, divida o total em quantas formas precisar: escolha a forma (`F1`–`F6`/`1`–`6`), informe o valor e `Enter` (**Adicionar pagamento**); repita até cobrir o total (**Finalizar venda**). O modal mostra o que já foi pago e o que falta; `F7` preenche o restante, `Delete` ou o × remove um pagamento. Só **dinheiro** pode passar do que falta (gera troco); no cartão/PIX/vales o valor não pode exceder o restante. No dinheiro o sistema grava o valor **aplicado** à venda (sem o troco), o que mantém o fechamento de caixa correto.
 

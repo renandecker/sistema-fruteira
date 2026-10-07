@@ -47,6 +47,8 @@ if [ "$APP_ENV" = producao ]; then
   fi
   [ "${TEF_PROVIDER:-simulador}" = simulador ] && echo "ℹ TEF em modo SIMULADOR (TEF_PROVIDER=simulador): não cobra cartão de verdade."
   [ -z "${TEF_TOKEN:-}" ] && echo "⚠ TEF_TOKEN vazio: defina um token no .env e em Configurações do caixa (qualquer página aberta no navegador pode chamar o agente local)."
+  [ "${PIX_PROVIDER:-simulador}" = simulador ] && echo "ℹ Pix em modo SIMULADOR (PIX_PROVIDER=simulador): não é Pix real."
+  [ "${PIX_PROVIDER:-simulador}" = psp ] && [ -z "${FRUTEIRA_PIX_WEBHOOK_SEGREDO:-}" ] && { echo "❌ Pix com PSP exige FRUTEIRA_PIX_WEBHOOK_SEGREDO no .env (o webhook é público)"; exit 1; }
   echo "Gerando o front (dist)..."
   (cd pdv-web && { [ -d node_modules ] || npm install; } && npm run build) > logs/pdv-web.log 2>&1 || { echo "❌ Build do front falhou (logs/pdv-web.log)"; exit 1; }
   echo "Subindo PostgreSQL e Keycloak$([ "$USE_NGINX" = true ] && echo ' e nginx')..."

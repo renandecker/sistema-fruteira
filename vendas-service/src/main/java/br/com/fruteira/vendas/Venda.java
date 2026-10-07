@@ -33,5 +33,7 @@ public class Venda extends PanacheEntity {
         public BigDecimal valor;
         // cartão via TEF (necessários à NFC-e)
         public Long tefId; public String nsu, autorizacao, bandeira, adquirente, cnpjCredenciadora;
+        // Pix recebido (txid e endToEndId — a NFC-e usa tPag 17)
+        public String pixTxid, pixE2e;
     }
 }
