@@ -1,0 +1,14 @@
+FRUTEIRA — PASTA DE PRODUÇÃO (gerada por gerar-producao.sh/.bat)
+================================================================
+Precisa instalar no servidor: Java 21, Docker e (sem nginx) Node 18+. NÃO precisa de Maven nem de compilar nada.
+
+1) Abra o arquivo .env e confira (as senhas já foram geradas aleatoriamente — guarde-as):
+   - KEYCLOAK_URL e FRONT_URL (com HTTPS/domínio reais, se for usar nginx); TEF_PROVIDER, PIX_PROVIDER...
+   - Mudou KEYCLOAK_URL/FRONT_URL/domínios? Rode gerar-producao de novo na pasta do projeto (o front embute a URL do Keycloak).
+2) HTTPS (opcional): USE_NGINX=true no .env, DNS dos dois domínios apontando para o servidor e  ./ssl.sh letsencrypt
+3) Iniciar:  ./iniciar.sh   (Windows: iniciar.bat)      Parar: ./parar.sh (parar.bat)
+4) Entre pelo Keycloak com gerente/supervisor/operador, senha temporária "trocar123" (troque no primeiro acesso).
+5) Pré-cadastro de frutas e verduras (opcional): database/pre_cadastro_frutas_verduras.sql no PostgreSQL "fruteira".
+6) Backup diário: ./backup.sh (agende no cron). Os dados ficam nos volumes Docker (pgdata, kcdata).
+
+Conteúdo: servicos/ (jars Quarkus) · web/ (front) · servidor-web.mjs · docker-compose.prod.yml · keycloak/ · nginx/ · database/ · .env · logs/ · backups/

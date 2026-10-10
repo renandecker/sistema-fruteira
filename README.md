@@ -253,6 +253,15 @@ Catálogo em `pdv-web/src/cartoes.js` e `vendas-service/.../Cartoes.java` (mante
 - A operadora fica gravada no pagamento da venda e vai para a NFC-e (`tPag` 10 vale-alimentação, 11 vale-refeição).
 - Limites: vales são lançados manualmente (sem TEF/autorização online); o saldo Mobilidade/Farmácia/Saúde do Alelo Tudo não se aplica à fruteira. Para vale com autorização na maquininha, o provedor TEF precisa suportar o produto.
 
+## Pasta de produção (pronta para instalar)
+
+`./gerar-producao.sh` (Windows: `gerar-producao.bat`) monta a pasta **`producao/`** com tudo que o servidor precisa:
+
+- `servicos/` (5 jars Quarkus já compilados), `web/` (front compilado), `servidor-web.mjs`, `docker-compose.prod.yml` (PostgreSQL + Keycloak + nginx opcional), `keycloak/`, `nginx/`, `database/`, `.env`, `iniciar`/`parar`/`backup`/`ssl` (.sh e .bat) e `LEIA-ME.txt`.
+- O `.env` de produção é criado com **senhas aleatórias** (banco, Keycloak e `TEF_TOKEN`) e **nunca é sobrescrito** ao gerar de novo.
+- Rode o gerador na máquina de desenvolvimento (Java, Maven, Node). O **servidor** só precisa de Java 21 + Docker (+ Node se não usar nginx) — sem Maven e sem compilar.
+- Mudou `KEYCLOAK_URL`/`FRONT_URL`/domínios? Gere de novo: a URL do Keycloak é embutida no front no build.
+
 ## Pendências para produção
 - NFC-e real (SEFAZ/Focus NFe), PIX dinâmico via PSP com webhook, SDK de TEF (PayGo/SiTef).
 - Autenticação (Keycloak) e autorização por perfil no backend (hoje o menu por perfil é só visual).
