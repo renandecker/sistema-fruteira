@@ -12,10 +12,23 @@ echo Uso: ssl.bat letsencrypt ^| renovar ^| local
 exit /b 1
 
 :le
-echo %FRONT_DOMAIN%%KEYCLOAK_DOMAIN% | findstr /i "exemplo" >nul && ( echo [ERRO] Troque os dominios de exemplo no .env & exit /b 1 )
+where docker >nul 2>nul || ( echo [ERRO] Docker nao encontrado no PATH ^(abra o Docker Desktop^) & exit /b 1 )
+docker info >nul 2>nul || ( echo [ERRO] Docker nao esta em execucao. Inicie o Docker Desktop e tente de novo & exit /b 1 )
+if "%FRONT_DOMAIN%"=="" ( echo [ERRO] Defina FRONT_DOMAIN no .env & exit /b 1 )
+if "%KEYCLOAK_DOMAIN%"=="" ( echo [ERRO] Defina KEYCLOAK_DOMAIN no .env & exit /b 1 )
+if "%LE_EMAIL%"=="" ( echo [ERRO] Defina LE_EMAIL no .env & exit /b 1 )
+echo %FRONT_DOMAIN%%KEYCLOAK_DOMAIN%%LE_EMAIL% | findstr /i "exemplo" >nul && ( echo [ERRO] Troque os dominios/e-mail de exemplo no .env & exit /b 1 )
+echo Emitindo certificado Let's Encrypt para %FRONT_DOMAIN% e %KEYCLOAK_DOMAIN%
+echo ^(requisitos: DNS dos dois dominios apontando para este servidor e portas 80/443 liberadas no firewall/roteador^)
 docker compose -f docker-compose.prod.yml stop nginx >nul 2>nul
 docker run --rm -p 80:80 -v "%CD%\nginx\certs:/etc/letsencrypt" certbot/certbot certonly --standalone --cert-name fruteira -d %FRONT_DOMAIN% -d %KEYCLOAK_DOMAIN% --email %LE_EMAIL% --agree-tos --no-eff-email --non-interactive
+set "RC=%ERRORLEVEL%"
+if not "%RC%"=="0" ( echo. & echo [ERRO] Falha ao emitir o certificado ^(codigo %RC%^). Confira DNS, porta 80 livre e os dominios no .env & exit /b %RC% )
+if not exist "nginx\certs\live\fruteira\fullchain.pem" ( echo [ERRO] Certificado nao encontrado em nginx\certs\live\fruteira & exit /b 1 )
 docker compose -f docker-compose.prod.yml up -d nginx >nul 2>nul
+echo.
+echo Certificado emitido com sucesso. No .env use USE_NGINX=true, KEYCLOAK_URL=https://%KEYCLOAK_DOMAIN% e FRONT_URL=https://%FRONT_DOMAIN%, depois rode iniciar.bat.
+echo Renovacao: agende "ssl.bat renovar" no Agendador de Tarefas do Windows ^(1x por semana^).
 exit /b 0
 
 :renovar
