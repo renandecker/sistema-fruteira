@@ -30,14 +30,16 @@ export const tipoTef = (meio, parcelas) => meio === 'DEBITO' ? 'DEBITO' : parcel
 // ---- NFC-e: dados do cartão (tPag, bandeira, credenciadora, autorização) ----
 const TBAND = { visa: '01', mastercard: '02', 'american express': '03', amex: '03', sorocred: '04', diners: '05', 'diners club': '05', elo: '06', hipercard: '07', aura: '08', cabal: '09' }
 export const tBand = nome => TBAND[(nome || '').toLowerCase().trim()] || '99'
+const TPAG_VALE = { VALE_ALIMENTACAO: '10', VALE_REFEICAO: '11' }   // 10 = vale alimentação · 11 = vale refeição
 export function cartoesNfce(pagamentos = []) {
+  const vales = pagamentos.filter(p => TPAG_VALE[p.meio]).map(p => ({ tPag: TPAG_VALE[p.meio], bandeira: p.operadora || null, operadora: p.operadora || null, tBand: '99', cnpjCredenciadora: null, cAut: p.autorizacao || null, nsu: p.nsu || null, valor: p.valor }))
   const pix = pagamentos.filter(p => p.pixTxid).map(p => ({ tPag: '17', bandeira: 'PIX', nsu: p.pixE2e, cnpjCredenciadora: null, tBand: null, cAut: null, valor: p.valor }))
   return JSON.stringify([...pagamentos.filter(p => p.nsu || p.tefId).map(p => ({
     tPag: p.meio === 'DEBITO' ? '04' : '03', cnpjCredenciadora: p.cnpjCredenciadora || null, tBand: tBand(p.bandeira),
-    bandeira: p.bandeira || null, cAut: p.autorizacao || null, nsu: p.nsu || null, valor: p.valor })), ...pix])
+    bandeira: p.bandeira || null, cAut: p.autorizacao || null, nsu: p.nsu || null, valor: p.valor })), ...pix, ...vales])
 }
 export function cartoesTexto(json) {
-  try { return JSON.parse(json || '[]').map(c => c.tPag === '17' ? `PIX · ${c.nsu || '—'}` : `${c.bandeira || 'cartão'} · aut ${c.cAut || '—'} · NSU ${c.nsu || '—'}`).join('; ') || '—' } catch { return '—' }
+  try { return JSON.parse(json || '[]').map(c => c.tPag === '17' ? `PIX · ${c.nsu || '—'}` : (c.tPag === '10' || c.tPag === '11') ? `${c.tPag === '10' ? 'Vale-alimentação' : 'Vale-refeição'} · ${c.operadora || '—'}` : `${c.bandeira || 'cartão'} · aut ${c.cAut || '—'} · NSU ${c.nsu || '—'}`).join('; ') || '—' } catch { return '—' }
 }
 
 /** Imprime as duas vias (cliente e estabelecimento) do comprovante TEF. */

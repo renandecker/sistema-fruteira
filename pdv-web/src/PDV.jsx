@@ -7,6 +7,7 @@ import { PROD } from './auth.js'
 import TefModal from './TefModal.jsx'
 import PixModal from './PixModal.jsx'
 import { pixAtivo, pixPendencias } from './pix.js'
+import { cartoesDoMeio, meioDeBeneficio, nomeCartao } from './cartoes.js'
 import { tefAtivo, desfazerTef, confirmarTef, imprimirComprovantes, reconciliar, cartoesNfce } from './tef.js'
 import { decodificarEtiqueta } from './etiqueta.js'
 
@@ -209,7 +210,7 @@ export default function PDV() {
   }
   async function finalizar(pagamentos) {
     const cartoes = pagamentos.filter(p => p.tefId)
-    const venda = { cpf, atacado: false, pagamentos: pagamentos.map(({ meio, valor, tefId, pixId }) => ({ meio, valor, ...(tefId ? { tefId } : {}), ...(pixId ? { pixId } : {}) })),
+    const venda = { cpf, atacado: false, pagamentos: pagamentos.map(({ meio, valor, tefId, pixId, operadora }) => ({ meio, valor, ...(operadora ? { operadora } : {}), ...(tefId ? { tefId } : {}), ...(pixId ? { pixId } : {}) })),
       itens: itens.map(i => ({ produtoId: i.produtoId, quantidade: i.quantidade, pesoBalanca: i.pesoBalanca })) }
     try {
       const v = await enviarVenda(venda); setMsg('Venda concluída ✔'); posVenda(v, venda.cpf); carregar()    // recarrega ranking e promoções
@@ -299,7 +300,7 @@ const rotulo = id => MEIOS.find(m => m.id === id)?.rot ?? id
 function Pagamento({ total, desconto = 0, onOk, onCancel, problemasNcm = [], produtoIds = [] }) {
   const usaTef = tefAtivo(); const usaPix = pixAtivo()
   const [pags, setPags] = useState([]); const [meio, setMeio] = useState('PIX'); const [valor, setValor] = useState(total)
-  const [parcelas, setParcelas] = useState(1); const [tefTx, setTefTx] = useState(null); const [pixTx, setPixTx] = useState(null); const [aviso, setAviso] = useState('')
+  const [operadoras, setOperadoras] = useState({}); const [parcelas, setParcelas] = useState(1); const [tefTx, setTefTx] = useState(null); const [pixTx, setPixTx] = useState(null); const [aviso, setAviso] = useState('')
   const campo = useRef(null); const enviado = useRef(false)
   const pago = pags.reduce((s, p) => s + c2(p.valor), 0)
   const restante = (c2(total) - pago) / 100
@@ -307,6 +308,10 @@ function Pagamento({ total, desconto = 0, onOk, onCancel, problemasNcm = [], pro
   const cobre = c2(v) >= c2(restante)
   const aplicado = Math.min(v, restante)
   const cartao = meio === 'CREDITO' || meio === 'DEBITO'
+  const vale = meioDeBeneficio(meio)
+  const opcoes = cartoesDoMeio(meio)                                     // vale: operadoras do saldo · crédito/débito sem TEF: Banricompras
+  const operadora = operadoras[meio] ?? (vale ? opcoes[0]?.id : '')      // vale exige operadora (a 1ª vem marcada)
+  const escolherOperadora = id => setOperadoras(o => ({ ...o, [meio]: id }))
   const troco = meio === 'DINHEIRO' ? Math.max(0, r2(v - restante)) : 0
   const completo = pags.length > 0 && c2(restante) === 0     // tudo pago (ex.: venda recusada depois do Pix recebido): permite finalizar de novo
   const pode = completo || (v > 0 && (meio === 'DINHEIRO' || c2(v) <= c2(restante)))
@@ -321,7 +326,8 @@ function Pagamento({ total, desconto = 0, onOk, onCancel, problemasNcm = [], pro
   const confirmar = () => {
     if (!pode || enviado.current || tefTx || pixTx) return
     if (completo) { enviado.current = true; Promise.resolve(onOk(pags)).finally(() => { enviado.current = false }); return }
-    const novo = { meio, valor: r2(aplicado) }
+    const novo = { meio, valor: r2(aplicado), ...(operadora && (vale || (cartao && !usaTef)) ? { operadora } : {}) }
+    if (vale && !operadora) { setAviso('Escolha a operadora do cartão (Alelo, Ticket, Pluxee, VR…).'); return }
     if (usaTef && cartao && problemasNcm.length) { setAviso(`NCM ausente ou inválido em: ${problemasNcm.join(', ')}. Corrija em Produtos e preços antes de cobrar no cartão: a NFC-e exige NCM válido e vigente em todos os itens.`); return }
     if (usaTef && cartao) { setAviso(''); setTefTx({ meio, valor: novo.valor, parcelas: meio === 'CREDITO' ? parcelas : 1, cobre }); return }   // cobra na maquininha
     if (usaPix && meio === 'PIX') { setAviso(''); setPixTx({ valor: novo.valor, cobre }); return }          // gera a cobrança Pix no PSP
@@ -381,13 +387,17 @@ function Pagamento({ total, desconto = 0, onOk, onCancel, problemasNcm = [], pro
         <img src="/logo.png" alt="" style={{ height: 48, borderRadius: 6 }} />
         <h2>Total {brl(total)}</h2>
         {desconto > 0 && <p className="eco">Você economizou {brl(desconto)} em promoções 🎉</p>}
-        {pags.length > 0 && <ul className="pags">{pags.map((p, k) => <li key={k}><span>{rotulo(p.meio)}{p.tef && <small> · {p.tef.bandeira} · NSU {p.tef.nsu} · aut {p.tef.autorizacao}</small>}{p.pixId && <small> · Pix recebido · {p.pix?.endToEndId}</small>}</span><b>{brl(p.valor)}</b>
+        {pags.length > 0 && <ul className="pags">{pags.map((p, k) => <li key={k}><span>{rotulo(p.meio)}{p.operadora && <small> · {nomeCartao(p.operadora)}</small>}{p.tef && <small> · {p.tef.bandeira} · NSU {p.tef.nsu} · aut {p.tef.autorizacao}</small>}{p.pixId && <small> · Pix recebido · {p.pix?.endToEndId}</small>}</span><b>{brl(p.valor)}</b>
           <button className="x-item" title="Remover este pagamento" onClick={() => removerPag(k)}>×</button></li>)}</ul>}
         <div className="falta">Pago: {brl(pago / 100)} · <b>Falta: {brl(restante)}</b></div>
         <div className="meios">{MEIOS.map(m => <button key={m.id} className={m.id === meio ? 'on' : ''} onClick={() => escolher(m.id)}><kbd>{m.tecla}</kbd> {m.rot}</button>)}</div>
         {meio === 'PIX' && !usaPix && <div style={{ textAlign: 'center', margin: 8 }}>
           {/* Troque o payload pelo "copia e cola" gerado pelo pagamento-service (PIX dinâmico via PSP) */}
           <QRCodeSVG value={`PIX-DEMO|valor=${aplicado.toFixed(2)}`} size={150} fgColor="#066b43" /><p style={{ margin: 4 }}>PIX de {brl(aplicado)} — aguardando confirmação…</p></div>}
+        {(vale || (cartao && !usaTef)) && <div className="operadoras" role="group" aria-label="Operadora do cartão">
+          <small>{vale ? 'Operadora do cartão:' : 'Rede (opcional):'}</small>
+          {!vale && <button className={!operadora ? 'on' : ''} onClick={() => escolherOperadora('')}>Outra</button>}
+          {opcoes.map(c => <button key={c.id} className={c.id === operadora ? 'on' : ''} title={c.info} onClick={() => escolherOperadora(c.id)}>{c.nome}</button>)}</div>}
         <div style={{ margin: '10px 0' }}>
           <label>{meio === 'DINHEIRO' ? 'Recebido' : 'Valor'} em {rotulo(meio)}: <input ref={campo} type="number" step="0.01" value={valor} onChange={e => setValor(e.target.value)} style={{ fontSize: 22, width: 150 }} /></label>
           {usaTef && meio === 'CREDITO' && <label style={{ marginLeft: 12 }}>Parcelas: <select value={parcelas} onChange={e => setParcelas(+e.target.value)}>{Array.from({ length: 12 }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n === 1 ? 'à vista' : `${n}x`}</option>)}</select></label>}

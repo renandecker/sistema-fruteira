@@ -29,7 +29,7 @@ public class VendaResource {
 
     /** pesoBalanca=true só pode ser enviado pelo agente de balança do PDV (leitura por cabo). */
     public record ItemReq(Long produtoId, BigDecimal quantidade, boolean pesoBalanca) {}
-    public record PagReq(String meio, BigDecimal valor, Long tefId, Long pixId) {}
+    public record PagReq(String meio, BigDecimal valor, Long tefId, Long pixId, String operadora) {}
     public record VendaReq(String cpf, boolean atacado, List<ItemReq> itens, List<PagReq> pagamentos) {}
 
     @POST @Transactional
@@ -54,6 +54,11 @@ public class VendaResource {
         BigDecimal pago = BigDecimal.ZERO; List<TefTransacao> tefs = new ArrayList<>(); List<PixCobranca> pixs = new ArrayList<>();
         for (PagReq pr : req.pagamentos()) {
             Pagamento pg = new Pagamento(); pg.venda = v; pg.meio = pr.meio(); pg.valor = pr.valor();
+            if (Cartoes.beneficio(pr.meio())) {                        // vale: a operadora é obrigatória e precisa aceitar o saldo
+                if (!Cartoes.aceita(pr.operadora(), pr.meio())) throw Http.erro(422, "Informe uma operadora válida para " + pr.meio() + " (ex.: ALELO_ALIMENTACAO, TICKET, PLUXEE, VR)");
+            } else if (pr.operadora() != null && !pr.operadora().isBlank() && !Cartoes.aceita(pr.operadora(), pr.meio()))
+                throw Http.erro(422, "A operadora " + pr.operadora() + " não é aceita no meio " + pr.meio());
+            if (pr.operadora() != null && !pr.operadora().isBlank()) pg.operadora = pr.operadora();
             boolean cartao = "CREDITO".equals(pr.meio()) || "DEBITO".equals(pr.meio());
             if (pr.tefId() != null) {                                  // pagamento aprovado no TEF: confere e guarda NSU/autorização/bandeira
                 TefTransacao t = TefTransacao.findById(pr.tefId());

@@ -244,6 +244,15 @@ A NFC-e exige NCM de **8 dígitos, existente e vigente** em cada item. O sistema
 - **Alt + \* + quantidade + Enter** multiplica o **último item adicionado**, somente se vendido **por unidade** (1–999). Esc cancela, Backspace apaga.
 - Alguns sistemas/navegadores interceptam Alt+tecla; se isso ocorrer, use o campo de código de barras (F4).
 
+## Cartões de benefício e Banricompras
+
+Catálogo em `pdv-web/src/cartoes.js` e `vendas-service/.../Cartoes.java` (mantenha os dois iguais): **Alelo Alimentação, Alelo Refeição, Alelo Tudo (Flexível), Banricard, Banricompras, Ticket (Edenred), Pluxee, VR Benefícios, Green Card e ValeCard / Vólus**.
+
+- No pagamento, **Vale-alimentação (F5)** e **Vale-refeição (F6)** pedem a operadora (só aparecem as que aceitam aquele saldo; Alelo Alimentação só no vale-alimentação, Alelo Refeição só no vale-refeição, Alelo Tudo nos dois). A venda é recusada (422) sem operadora válida.
+- **Banricompras** é débito/crédito: com TEF a bandeira vem da maquininha; sem TEF aparece como "Rede (opcional)".
+- A operadora fica gravada no pagamento da venda e vai para a NFC-e (`tPag` 10 vale-alimentação, 11 vale-refeição).
+- Limites: vales são lançados manualmente (sem TEF/autorização online); o saldo Mobilidade/Farmácia/Saúde do Alelo Tudo não se aplica à fruteira. Para vale com autorização na maquininha, o provedor TEF precisa suportar o produto.
+
 ## Pendências para produção
 - NFC-e real (SEFAZ/Focus NFe), PIX dinâmico via PSP com webhook, SDK de TEF (PayGo/SiTef).
 - Autenticação (Keycloak) e autorização por perfil no backend (hoje o menu por perfil é só visual).

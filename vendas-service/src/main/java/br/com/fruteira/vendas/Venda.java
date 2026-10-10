@@ -31,6 +31,8 @@ public class Venda extends PanacheEntity {
         @ManyToOne @JsonIgnore public Venda venda;
         public String meio; // DINHEIRO, PIX, CREDITO, DEBITO, VALE_ALIMENTACAO, VALE_REFEICAO
         public BigDecimal valor;
+        /** Operadora do cartão (vale-alimentação/refeição ou Banricompras) — ver Cartoes */
+        public String operadora;
         // cartão via TEF (necessários à NFC-e)
         public Long tefId; public String nsu, autorizacao, bandeira, adquirente, cnpjCredenciadora;
         // Pix recebido (txid e endToEndId — a NFC-e usa tPag 17)

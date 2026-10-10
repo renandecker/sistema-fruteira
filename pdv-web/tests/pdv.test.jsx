@@ -122,3 +122,25 @@ test('Ctrl + setas trocam de aba', async () => {
   fireEvent.keyDown(window, { key: 'ArrowLeft', ctrlKey: true })
   expect([...c.querySelectorAll('button.card')].map(b => b.textContent).join()).toBe(antes)
 })
+
+// ---------- cartões de benefício ----------
+import { CARTOES, cartoesDoMeio } from '../src/cartoes.js'
+import { cartoesNfce } from '../src/tef.js'
+test('catálogo traz todas as operadoras pedidas', () => {
+  const nomes = CARTOES.map(c => c.nome).join('|')
+  for (const n of ['Alelo Alimentação', 'Alelo Refeição', 'Alelo Tudo', 'Banricard', 'Banricompras', 'Ticket', 'Pluxee', 'VR', 'Green Card', 'ValeCard']) expect(nomes).toContain(n)
+  const al = cartoesDoMeio('VALE_ALIMENTACAO').map(c => c.id), rf = cartoesDoMeio('VALE_REFEICAO').map(c => c.id)
+  expect(al).toContain('ALELO_ALIMENTACAO'); expect(al).not.toContain('ALELO_REFEICAO'); expect(rf).toContain('ALELO_REFEICAO'); expect(rf).toContain('ALELO_TUDO')
+  expect(cartoesDoMeio('DEBITO').map(c => c.id)).toEqual(['BANRICOMPRAS'])
+})
+test('vale-refeição com operadora escolhida segue na venda e na NFC-e (tPag 11)', async () => {
+  const c = await abrir()
+  fireEvent.click(card(c, 'Alface')); tecla('F2'); fireEvent.keyDown(window, { key: 'F6' })
+  fireEvent.click([...document.querySelectorAll('.operadoras button')].find(b => b.textContent.includes('Pluxee')))
+  fireEvent.keyDown(window, { key: 'Enter' })
+  await waitFor(() => expect(chamadas.some(x => x.o?.method === 'POST' && x.url.endsWith('/vendas'))).toBe(true))
+  const body = JSON.parse(chamadas.find(x => x.o?.method === 'POST' && x.url.endsWith('/vendas')).o.body)
+  expect(body.pagamentos).toEqual([{ meio: 'VALE_REFEICAO', valor: 3.5, operadora: 'PLUXEE' }])
+  const n = JSON.parse(cartoesNfce([{ meio: 'VALE_REFEICAO', valor: 3.5, operadora: 'PLUXEE' }, { meio: 'VALE_ALIMENTACAO', valor: 1, operadora: 'TICKET' }]))
+  expect(n.map(x => x.tPag)).toEqual(['10', '11'].reverse())
+})
