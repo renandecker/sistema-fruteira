@@ -8,8 +8,12 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.eclipse.microprofile.rest.client.inject.RestClient;
 
 /** Regra de negócio e persistência do TEF. O agente local fala com o pinpad; o front leva o resultado até aqui. */
 @Path("/tef") @Produces(MediaType.APPLICATION_JSON) @Consumes(MediaType.APPLICATION_JSON)
@@ -17,8 +21,11 @@ public class TefResource {
     private static final Set<String> TIPOS = Set.of("CREDITO_A_VISTA", "CREDITO_PARCELADO", "DEBITO");
     private static final Set<String> FINAIS = Set.of("APROVADA", "NEGADA", "CANCELADA", "ERRO");
     @Inject Auditor auditor;
+    @Inject @RestClient Clients.Catalogo catalogo;
+    /** A NFC-e exige NCM válido em todos os itens: sem isso o cartão nem é cobrado */
+    @ConfigProperty(name = "fruteira.ncm.obrigatorio-tef", defaultValue = "true") boolean ncmObrigatorio;
 
-    public record Iniciar(BigDecimal valor, String tipo, Integer parcelas, String terminal) {}
+    public record Iniciar(BigDecimal valor, String tipo, Integer parcelas, String terminal, List<Long> produtoIds) {}
     public record Resultado(String status, String mensagem, String nsu, String nsuHost, String autorizacao, String bandeira, String adquirente,
                             String cnpjCredenciadora, String cartao, String comprovanteCliente, String comprovanteLoja) {}
     public record Pendencia(Long id, String requisicao, String status, BigDecimal valor, Long vendaId, LocalDateTime criadoEm) {}
@@ -31,6 +38,11 @@ public class TefResource {
         int parcelas = i.parcelas() == null ? 1 : i.parcelas();
         if (parcelas < 1 || parcelas > 12 || ("CREDITO_PARCELADO".equals(i.tipo()) && parcelas < 2) || (!"CREDITO_PARCELADO".equals(i.tipo()) && parcelas != 1))
             throw Http.erro(422, "Número de parcelas inválido");
+        if (ncmObrigatorio && i.produtoIds() != null && !i.produtoIds().isEmpty()) {
+            List<String> problemas = new ArrayList<>();
+            for (Long pid : new LinkedHashSet<>(i.produtoIds())) { Clients.ProdutoDTO p = catalogo.buscar(pid); String m = p.problemaNcm(); if (m != null) problemas.add(p.nome() + " (" + m + ")"); }
+            if (!problemas.isEmpty()) throw Http.erro(422, "A NFC-e exige NCM válido e vigente em todos os itens. Corrija em Produtos e preços: " + String.join("; ", problemas));
+        }
         TefTransacao t = new TefTransacao();
         t.valor = i.valor(); t.tipo = i.tipo(); t.parcelas = parcelas; t.terminal = i.terminal(); t.operador = auditor.usuario();
         t.persist();

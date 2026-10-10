@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import PDV from '../src/PDV.jsx'
 import { reconciliar } from '../src/tef.js'
 
-const produtos = [{ id: 1, nome: 'Alface Crespa', unidade: 'UN', precoVarejo: 3.5, plu: 1, categoria: 'Verduras', ativo: true }]
+const produtos = [{ id: 1, nome: 'Alface Crespa', unidade: 'UN', precoVarejo: 3.5, plu: 1, categoria: 'Verduras', ativo: true, ncm: '07051100', ncmStatus: 'VALIDO' }]
 const REQ = 'TEF20261005000005'
 const APROVADA = { status: 'APROVADA', mensagem: 'Transação aprovada', nsu: '001001', autorizacao: '123456', bandeira: 'VISA', adquirente: 'SIMULADOR', cnpjCredenciadora: '00000000000191', cartao: '**** 1234', comprovanteCliente: 'VIA CLIENTE', comprovanteLoja: 'VIA LOJA' }
 let chamadas, cenario

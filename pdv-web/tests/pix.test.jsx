@@ -2,7 +2,7 @@ import React from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import PDV from '../src/PDV.jsx'
 
-const produtos = [{ id: 1, nome: 'Alface Crespa', unidade: 'UN', precoVarejo: 3.5, plu: 1, categoria: 'Verduras', ativo: true }]
+const produtos = [{ id: 1, nome: 'Alface Crespa', unidade: 'UN', precoVarejo: 3.5, plu: 1, categoria: 'Verduras', ativo: true, ncm: '07051100', ncmStatus: 'VALIDO' }]
 const PAYLOAD = '00020101021226540014br.gov.bcb.pix2532pix.simulador.local/qr/v2/abc5204000053039865405' + '3.505802BR5918FRUTEIRA CONVENTOS6006CIDADE62070503***6304ABCD'
 const cobranca = (status, extra = {}) => ({ id: 3, txid: 'a'.repeat(32), status, valor: 3.5, valorPago: status === 'CONCLUIDA' ? 3.5 : null, pixCopiaECola: PAYLOAD,
   segundosRestantes: status === 'ATIVA' ? 300 : 0, provedor: 'psp', endToEndId: status === 'CONCLUIDA' ? 'E00000000202610061200ABCDEFGHIJK' : null, ...extra })

@@ -4,6 +4,7 @@ import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Entity
 public class Produto extends PanacheEntity {
@@ -24,6 +25,12 @@ public class Produto extends PanacheEntity {
     public String categoria;                 // folhosas, frutas de época...
     public String fotoUrl;                   // botão touch com foto
     public String ncm;
+    // Verificação do NCM (BrasilAPI / tabela oficial do Siscomex) — a NFC-e exige NCM de 8 dígitos válido e vigente em cada item
+    @Column(length = 20) public String ncmStatus;      // VALIDO | INVALIDO | VENCIDO | AUSENTE | NAO_VERIFICADO
+    @Column(length = 500) public String ncmDescricao;
+    @Column(length = 20) public String ncmFonte;       // brasilapi | siscomex
+    public LocalDate ncmFim;                           // fim da vigência
+    public LocalDateTime ncmVerificadoEm;
     public BigDecimal taxaPerdaPct = BigDecimal.ZERO; // perda esperada p/ markup
     public BigDecimal custoMedio = BigDecimal.ZERO;
     public boolean ativo = true;

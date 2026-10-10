@@ -5,13 +5,16 @@ import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Path("/produtos") @Produces(MediaType.APPLICATION_JSON) @Consumes(MediaType.APPLICATION_JSON)
 public class ProdutoResource {
     @Inject Auditor auditor;
     @Inject PromocaoService promocoes;
     @Inject PreCadastro preCadastro;
+    @Inject NcmService ncm;
 
     /** Só o gerente enxerga produtos desativados (?inativos=true). A promoção vigente vem calculada em cada produto. */
     @GET public List<Produto> listar(@QueryParam("inativos") boolean inativos) {
@@ -41,6 +44,7 @@ public class ProdutoResource {
         p.categoria = validarCategoria(p.categoria, null);
         p.atalho = normalizarAtalho(p.atalho, null);
         p.codigoBarras = validarCodigoBarras(p.codigoBarras, null);
+        conferirNcm(p, true);
         p.ativo = true;
         p.persist();
         auditor.registrar("CADASTRO", "Produto", p.id, "Produto cadastrado: " + p.nome, null, p);
@@ -53,9 +57,12 @@ public class ProdutoResource {
         String categoria = validarCategoria(in.categoria, p.categoria);
         String atalho = normalizarAtalho(in.atalho, id);
         String codigoBarras = validarCodigoBarras(in.codigoBarras, id);
+        boolean ncmMudou = !NcmService.normalizar(in.ncm).equals(NcmService.normalizar(p.ncm));
+        if (ncmMudou) p.ncm = in.ncm;
+        if (ncmMudou || p.ncmStatus == null) conferirNcm(p, ncmMudou);     // só bloqueia quando o usuário trocou o NCM; edições comuns não travam por NCM antigo ruim
         p.nome = in.nome; p.unidade = in.unidade; p.precoVarejo = in.precoVarejo; p.precoAtacado = in.precoAtacado;
         p.plu = in.plu; p.codigoBarras = codigoBarras; p.categoria = categoria; p.fotoUrl = in.fotoUrl; p.imagem = in.imagem;
-        p.taxaPerdaPct = in.taxaPerdaPct; p.ncm = in.ncm; p.atalho = atalho;
+        p.taxaPerdaPct = in.taxaPerdaPct; p.atalho = atalho;
         promocoes.aplicar(List.of(p));
         auditor.registrar("EDICAO", "Produto", id, "Produto alterado: " + p.nome, antes, p);
         return p;
@@ -116,6 +123,19 @@ public class ProdutoResource {
         Categoria c = Categoria.find("lower(nome) = ?1", n.toLowerCase()).firstResult();
         if (c == null || Boolean.FALSE.equals(c.ativo)) throw Http.erro(422, "Categoria inexistente ou desativada: " + n);
         return c.nome;
+    }
+    /** Confere o NCM nas fontes oficiais e grava o resultado no produto. bloquear=true recusa NCM inexistente/vencido (com sugestões). */
+    private void conferirNcm(Produto p, boolean bloquear) {
+        String n = NcmService.normalizar(p.ncm);
+        if (n.isEmpty()) { p.ncm = null; p.ncmStatus = "AUSENTE"; p.ncmDescricao = null; p.ncmFonte = null; p.ncmFim = null; p.ncmVerificadoEm = LocalDateTime.now(); return; }
+        NcmService.Resultado r = ncm.verificar(n, false);
+        if (bloquear && ("INVALIDO".equals(r.status()) || "VENCIDO".equals(r.status()))) {
+            String sug = r.sugestoes().isEmpty() ? "" : " Sugestões: " + r.sugestoes().stream().map(s -> s.ncm() + " (" + s.descricao() + ")").collect(Collectors.joining("; "));
+            throw Http.erro(422, "NCM " + n + ": " + r.mensagem() + "." + sug);
+        }
+        if (n.length() == 8) p.ncm = n;
+        p.ncmStatus = r.status(); p.ncmFonte = r.fonte(); p.ncmFim = r.fim(); p.ncmVerificadoEm = LocalDateTime.now();
+        p.ncmDescricao = r.descricao() == null ? null : r.descricao().substring(0, Math.min(500, r.descricao().length()));
     }
     /** Código de barras opcional; único entre produtos ativos (o leitor do caixa precisa identificar sem ambiguidade). */
     private String validarCodigoBarras(String cb, Long idAtual) {

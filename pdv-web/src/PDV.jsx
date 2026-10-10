@@ -22,7 +22,7 @@ const enviarVenda = v => api('/api/vendas/vendas', { method: 'POST', body: JSON.
 let seq = 0
 
 export default function PDV() {
-  const [produtos, setProdutos] = useState([]); const [categorias, setCategorias] = useState([]); const [ranking, setRanking] = useState({})
+  const [produtos, setProdutos] = useState([]); const [categorias, setCategorias] = useState([]); const [atalho, setAtalho] = useState(null)   // atalho: { tipo: 'plu' | 'mult', texto }
   const [itens, setItens] = useState([]); const [codigo, setCodigo] = useState(''); const [cpf, setCpf] = useState(''); const [pagando, setPagando] = useState(false)
   const [msg, setMsg] = useState(''); const [aba, setAba] = useState(0); const [flash, setFlash] = useState(null); const [avisoPeso, setAvisoPeso] = useState(false)
   const balanca = useBalanca(); const fim = useRef(null); const campo = useRef(null); const bipCtx = useRef(null)
@@ -30,7 +30,6 @@ export default function PDV() {
   const carregar = () => {
     api('/api/catalogo/produtos').then(setProdutos).catch(() => setMsg('Catálogo indisponível'))
     api('/api/catalogo/categorias').then(setCategorias).catch(() => {})
-    api('/api/vendas/vendas/ranking').then(r => setRanking(Object.fromEntries(r.map(x => [x.produtoId, x])))).catch(() => {})
   }
   useEffect(() => { carregar() }, [])
   useEffect(() => { reconciliar().then(r => r.resolvidas && setMsg(`${r.resolvidas} transação(ões) de cartão pendente(s) reconciliada(s)`)) }, [])   // TEF: resolve o que ficou no ar após queda
@@ -49,10 +48,8 @@ export default function PDV() {
     return l
   }, [produtos, categorias])
   const idxAba = Math.min(aba, abas.length - 1)
-  const visiveis = useMemo(() => {
-    const r = id => ranking[id] || { vendas: 0, quantidade: 0 }
-    return produtos.filter(abas[idxAba].filtro).sort((a, b) => r(b.id).vendas - r(a.id).vendas || r(b.id).quantidade - r(a.id).quantidade || a.nome.localeCompare(b.nome))
-  }, [produtos, abas, idxAba, ranking])
+  // ordem alfabética (pt-BR) dentro de cada aba
+  const visiveis = useMemo(() => produtos.filter(abas[idxAba].filtro).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')), [produtos, abas, idxAba])
 
   const preco = p => Number(p.precoPromocional ?? p.precoVarejo)
   const total = itens.reduce((s, i) => s + i.subtotal, 0)
@@ -70,7 +67,7 @@ export default function PDV() {
     const orig = Number(p.precoVarejo), pr = preco(p), promo = p.precoPromocional != null && pr < orig
     const sub = +(qtd * pr).toFixed(2), bruto = +(qtd * orig).toFixed(2)
     const uid = ++seq
-    setItens(l => [...l, { uid, produtoId: p.id, nome: p.nome, quantidade: qtd, preco: pr, precoOriginal: orig, promo, desconto: promo ? +(bruto - sub).toFixed(2) : 0, subtotal: sub, pesoBalanca: porKg }])
+    setItens(l => [...l, { uid, produtoId: p.id, nome: p.nome, unidade: p.unidade, quantidade: qtd, preco: pr, precoOriginal: orig, promo, desconto: promo ? +(bruto - sub).toFixed(2) : 0, subtotal: sub, pesoBalanca: porKg }])
     setFlash({ id: p.id, n: uid }); setMsg('')
     return true
   }
@@ -88,6 +85,33 @@ export default function PDV() {
     auditar(`Venda em andamento limpa: ${itens.length} itens, total ${brl(itens.reduce((s, i) => s + i.subtotal, 0))}`, { itens: itens.map(i => `${i.nome} ${i.quantidade.toFixed(3)} = ${brl(i.subtotal)}`) })
     setItens([]); setMsg('Venda limpa'); focarCampo()
   }
+
+  // ---- Alt + PLU (+ Enter) adiciona · Alt + * + nº (+ Enter) multiplica a quantidade do ÚLTIMO item (só por unidade) ----
+  const recalcular = (it, qtd) => ({ ...it, quantidade: qtd, subtotal: +(qtd * it.preco).toFixed(2), desconto: it.promo ? +(qtd * (it.precoOriginal - it.preco)).toFixed(2) : 0 })
+  const multiplicarUltimo = n => {
+    const ult = itens[itens.length - 1]
+    if (!ult) { setMsg('Não há item para multiplicar'); return bip(false) }
+    if (ult.unidade === 'KG') { setMsg(`${ult.nome} é vendido por kg: a multiplicação vale só para itens por unidade`); return bip(false) }
+    if (!Number.isInteger(n) || n < 1 || n > 999) { setMsg('Informe uma quantidade de 1 a 999'); return bip(false) }
+    setItens(l => l.map((it, k) => k === l.length - 1 ? recalcular(it, n) : it))
+    setFlash({ id: ult.produtoId, n: ++seq }); setMsg(`${ult.nome}: quantidade ${n}`); bip(true)
+  }
+  const confirmarAtalho = () => {
+    const a = atalho; setAtalho(null)
+    if (!a?.texto) return
+    if (a.tipo === 'plu') {
+      const p = produtos.find(x => x.plu === +a.texto)
+      if (p) bip(adicionar(p)); else { setMsg(`PLU ${a.texto} não encontrado`); bip(false) }
+    } else multiplicarUltimo(+a.texto)
+    campo.current?.focus()
+  }
+  const campoAtalho = atalho ? (atalho.tipo === 'mult' ? `× ${atalho.texto}` : atalho.texto) : ''
+  const dicaAtalho = !atalho ? '' : atalho.tipo === 'plu'
+    ? (atalho.texto ? (produtos.find(x => x.plu === +atalho.texto)?.nome ?? 'PLU não cadastrado') : '')
+    : `último: ${itens[itens.length - 1]?.nome ?? '—'} (por unidade)`
+  // NCM: a NFC-e exige NCM válido e vigente em todos os itens — sem isso o cartão (TEF) nem é cobrado
+  const ncmOk = p => /^\d{8}$/.test(p?.ncm || '') && p?.ncmStatus === 'VALIDO'
+  const problemasNcm = [...new Set(itens.map(i => produtos.find(p => p.id === i.produtoId)).filter(p => p && !ncmOk(p)).map(p => p.nome))]
 
   // ---- leitor de código de barras ----
   const bip = ok => {
@@ -131,6 +155,27 @@ export default function PDV() {
     const h = e => {
       const emCampo = ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)
       const emOutroCampo = emCampo && e.target !== campo.current        // o campo de código de barras não bloqueia os atalhos
+      if (!pagando && !emOutroCampo) {
+        // Ctrl + ← / → : troca de aba
+        if (e.ctrlKey && !e.altKey && !e.metaKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+          e.preventDefault(); setAba(a => (Math.min(a, abas.length - 1) + (e.key === 'ArrowRight' ? 1 : -1) + abas.length) % abas.length); return
+        }
+        if (e.altKey && !e.ctrlKey && !e.metaKey) {
+          const d = (/^(?:Digit|Numpad)(\d)$/.exec(e.code) || [])[1] ?? (/^\d$/.test(e.key) ? e.key : null)     // Alt + nº (o e.code vale também no Mac)
+          if (d != null) { e.preventDefault(); setAtalho(a => ({ tipo: a?.tipo === 'mult' ? 'mult' : 'plu', texto: (a?.texto || '') + d })); return }
+          if (e.key === '*' || e.code === 'NumpadMultiply' || (e.shiftKey && e.code === 'Digit8')) {   // Alt + *
+            e.preventDefault()
+            if (!itens.length) { setMsg('Adicione um item antes de multiplicar a quantidade'); return }
+            setAtalho({ tipo: 'mult', texto: '' }); return
+          }
+        }
+        if (atalho) {                                         // digitando o PLU / a quantidade
+          if (/^\d$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); setAtalho(a => ({ ...a, texto: a.texto + e.key })); return }
+          if (e.key === 'Enter') { e.preventDefault(); confirmarAtalho(); return }
+          if (e.key === 'Escape') { e.preventDefault(); setAtalho(null); return }
+          if (e.key === 'Backspace') { e.preventDefault(); setAtalho(a => a.texto.length > 1 ? { ...a, texto: a.texto.slice(0, -1) } : null); return }
+        }
+      }
       if (e.ctrlKey && !e.altKey && !e.metaKey) {                       // Ctrl + tecla do produto (AltGr = Ctrl+Alt é ignorado)
         if (e.repeat || pagando) return
         const k = e.key.length === 1 ? e.key.toUpperCase() : ''
@@ -184,12 +229,16 @@ export default function PDV() {
     <div className="pdv">
       <section className="main">
         <header className="topbar">
-          <img src="/logo.png" alt="Fruteira Conventos" />
+          <label className="plu-campo" title="Alt + nº do PLU + Enter adiciona o produto · Alt + * + quantidade + Enter multiplica o último item (por unidade)">
+            <span>PLU <kbd>Alt+nº</kbd> · Qtd <kbd>Alt+*</kbd></span>
+            <input readOnly tabIndex={-1} aria-label="PLU ou multiplicador digitado" value={campoAtalho} placeholder="—" />
+            <small>{dicaAtalho}</small>
+          </label>
           <label className="leitor" title="F4 para ir ao campo">
             <span>▮▯▮▮▯ Código de barras <kbd>F4</kbd></span>
             <input ref={campo} autoFocus inputMode="none" autoComplete="off" value={codigo} placeholder="Passe o leitor ou digite o código / PLU e Enter"
               onChange={e => aoDigitar(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); lerCodigo(codigo) } else if (e.key === 'Escape') setCodigo('') }} />
+              onKeyDown={e => { if (atalho) return; if (e.key === 'Enter') { e.preventDefault(); lerCodigo(codigo) } else if (e.key === 'Escape') setCodigo('') }} />
           </label>
           {!balanca.conectada && <button className="btn sec" onClick={() => balanca.conectar().catch(() => setMsg('Falha na balança'))}>Conectar balança</button>}
           {!PROD && <label className="sim-peso" title="Somente em desenvolvimento: simula o peso da balança para testar produtos por kg"><span>🧪 peso (kg)</span>
@@ -199,7 +248,7 @@ export default function PDV() {
         {msg && <div className="msg" role="status">{msg}</div>}
         <div className="abas">
           {abas.map((a, k) => <button key={a.id} className={k === idxAba ? 'on' : ''} onClick={() => setAba(k)}>{a.nome}</button>)}
-          <small>F4 código de barras · Tab / Shift+Tab troca a aba · Ctrl + tecla do produto · F2 pagar</small>
+          <small>F4 código de barras · Ctrl+←/→ ou Tab troca a aba · Alt+PLU+Enter · Alt+*+nº+Enter multiplica · Ctrl+tecla do produto · F2 pagar</small>
         </div>
         <div className="grid">
           {visiveis.map(p => {
@@ -224,7 +273,7 @@ export default function PDV() {
         <ul>
           {itens.map((i, k) => <li key={i.uid} className={`${k === itens.length - 1 ? 'ultimo' : ''} ${i.promo ? 'item-promo' : ''}`}>
             <span>{i.nome} {i.promo && <span className="promo-tag">PROMO</span>}<br />
-              <small>{i.quantidade.toFixed(3)} × {i.promo && <s>{brl(i.precoOriginal)}</s>} {brl(i.preco)}</small>
+              <small>{i.unidade === 'KG' ? i.quantidade.toFixed(3) : i.quantidade} × {i.promo && <s>{brl(i.precoOriginal)}</s>} {brl(i.preco)}</small>
               {i.promo && <><br /><small className="eco">desconto −{brl(i.desconto)}</small></>}</span>
             <span className="li-dir"><b>{brl(i.subtotal)}</b><button className="x-item" title="Remover este item" onClick={() => removerItem(i)}>×</button></span></li>)}
           <li ref={fim} style={{ height: 0, padding: 0, border: 0, animation: 'none' }} />
@@ -233,7 +282,7 @@ export default function PDV() {
         <div className="total">{brl(total)}</div>
         <button className="btn pagar" disabled={!itens.length} onClick={() => setPagando(true)}>Pagar (F2)</button>
       </aside>
-      {pagando && <Pagamento total={total} desconto={descontoTotal} onOk={finalizar} onCancel={() => { setPagando(false); focarCampo() }} />}
+      {pagando && <Pagamento total={total} desconto={descontoTotal} onOk={finalizar} problemasNcm={problemasNcm} produtoIds={[...new Set(itens.map(i => i.produtoId))]} onCancel={() => { setPagando(false); focarCampo() }} />}
     </div>)
 }
 
@@ -247,7 +296,7 @@ const rotulo = id => MEIOS.find(m => m.id === id)?.rot ?? id
 /** Pagamento em UMA ou MAIS formas (ex.: R$ 20 no PIX + o restante em dinheiro). O troco só existe para dinheiro.
  *  Com TEF ligado, crédito/débito são cobrados na maquininha (agente TEF) e só entram se aprovados.
  *  Atalhos: F1–F6 (ou 1–6) forma · F7 restante · F8/F9 notas sugeridas · Enter adiciona/finaliza · Delete remove o último · Esc volta */
-function Pagamento({ total, desconto = 0, onOk, onCancel }) {
+function Pagamento({ total, desconto = 0, onOk, onCancel, problemasNcm = [], produtoIds = [] }) {
   const usaTef = tefAtivo(); const usaPix = pixAtivo()
   const [pags, setPags] = useState([]); const [meio, setMeio] = useState('PIX'); const [valor, setValor] = useState(total)
   const [parcelas, setParcelas] = useState(1); const [tefTx, setTefTx] = useState(null); const [pixTx, setPixTx] = useState(null); const [aviso, setAviso] = useState('')
@@ -273,6 +322,7 @@ function Pagamento({ total, desconto = 0, onOk, onCancel }) {
     if (!pode || enviado.current || tefTx || pixTx) return
     if (completo) { enviado.current = true; Promise.resolve(onOk(pags)).finally(() => { enviado.current = false }); return }
     const novo = { meio, valor: r2(aplicado) }
+    if (usaTef && cartao && problemasNcm.length) { setAviso(`NCM ausente ou inválido em: ${problemasNcm.join(', ')}. Corrija em Produtos e preços antes de cobrar no cartão: a NFC-e exige NCM válido e vigente em todos os itens.`); return }
     if (usaTef && cartao) { setAviso(''); setTefTx({ meio, valor: novo.valor, parcelas: meio === 'CREDITO' ? parcelas : 1, cobre }); return }   // cobra na maquininha
     if (usaPix && meio === 'PIX') { setAviso(''); setPixTx({ valor: novo.valor, cobre }); return }          // gera a cobrança Pix no PSP
     adicionar(novo, cobre)
@@ -344,6 +394,7 @@ function Pagamento({ total, desconto = 0, onOk, onCancel }) {
           {meio === 'DINHEIRO' && <div style={{ fontSize: 22, margin: '6px 0' }}>Troco: <b style={{ color: pode ? 'var(--verde-escuro)' : 'var(--vermelho)' }}>{pode ? brl(troco) : 'valor inválido'}</b></div>}
           {meio !== 'DINHEIRO' && v > restante && <div style={{ color: 'var(--vermelho)' }}>O valor passa do que falta ({brl(restante)}).</div>}
           {usaTef && cartao && <small style={{ display: 'block' }}>💳 Cobrança integrada (TEF): a maquininha será acionada.</small>}
+          {usaTef && cartao && problemasNcm.length > 0 && <div className="msg" role="alert" style={{ margin: '6px 0' }}>⚠ NCM pendente em: {problemasNcm.join(', ')} — corrija antes de cobrar no cartão.</div>}
           {usaPix && meio === 'PIX' && <small style={{ display: 'block' }}>💠 Pix integrado: o QR Code é gerado ao confirmar e o pagamento é reconhecido automaticamente.</small>}
           <div className="meios"><button onClick={() => setValor(restante)}><kbd>F7</kbd> Restante {brl(restante)}</button>
             {meio === 'DINHEIRO' && sugestoes.map((x, k) => <button key={x} onClick={() => setValor(x)}><kbd>F{8 + k}</kbd> {brl(x)}</button>)}</div></div>
@@ -353,6 +404,6 @@ function Pagamento({ total, desconto = 0, onOk, onCancel }) {
         <small style={{ display: 'block', marginTop: 8, opacity: .7 }}>F1–F6 ou 1–6 escolhem a forma · divida o valor em quantas formas precisar · Delete remove o último</small>
       </div>
       {pixTx && <PixModal valor={pixTx.valor} onPago={pixPago} onFechar={() => setPixTx(null)} />}
-      {tefTx && <TefModal valor={tefTx.valor} meio={tefTx.meio} parcelas={tefTx.parcelas} onAprovada={aprovadoNoTef} onManual={manual} onFechar={() => setTefTx(null)} />}
+      {tefTx && <TefModal valor={tefTx.valor} meio={tefTx.meio} parcelas={tefTx.parcelas} produtoIds={produtoIds} onAprovada={aprovadoNoTef} onManual={manual} onFechar={() => setTefTx(null)} />}
     </div>)
 }

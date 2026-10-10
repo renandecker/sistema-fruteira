@@ -22,9 +22,14 @@ export function EmBreve({ item }) {
     <div className="vazio"><span className="badge">{txt}</span><p>{item.desc}</p></div></Pagina>
 }
 
+const fmtNcm = n => n && n.length === 8 ? `${n.slice(0, 4)}.${n.slice(4, 6)}.${n.slice(6)}` : (n || '—')
+const NCM_ST = { VALIDO: ['✔', 'var(--verde)', 'NCM válido e vigente'], VENCIDO: ['⚠', '#e0a100', 'Vigência do NCM encerrada'], INVALIDO: ['✖', 'var(--vermelho)', 'NCM inexistente na tabela oficial'], AUSENTE: ['—', '#999', 'Produto sem NCM'] }
+const ncmBadge = p => { const m = NCM_ST[p.ncmStatus] || ['?', '#999', 'NCM ainda não verificado']
+  return <span title={`${m[2]}${p.ncmDescricao ? ': ' + p.ncmDescricao : ''}${p.ncmVerificadoEm ? ' · verificado em ' + new Date(p.ncmVerificadoEm).toLocaleString('pt-BR') : ''}`} style={{ color: m[1], fontWeight: 700, fontSize: 18 }}>{m[0]}</span> }
+
 export function Produtos() {
   const [lista, recarregar] = useProdutos(true); const [categorias] = useLista('/api/catalogo/categorias'); const [msg, setMsg] = useState('')
-  const [cat, setCat] = useState(''); const [margem, setMargem] = useState(40); const [seletor, setSeletor] = useState(null)
+  const [cat, setCat] = useState(''); const [margem, setMargem] = useState(40); const [seletor, setSeletor] = useState(null); const [ncmSt, setNcmSt] = useState({ rodando: false, ultima: null })
   const cats = [...new Set(lista.filter(p => p.ativo !== false).map(p => p.categoria).filter(Boolean))]
   const nDesativados = lista.filter(p => p.ativo === false).length
   const usados = lista.filter(p => p.ativo !== false && p.atalho).map(p => p.atalho)
@@ -37,6 +42,16 @@ export function Produtos() {
     for (const p of semImagem) { try { await put(p, { imagem: sugerirImagem(p.nome).key }); n++ } catch (e) { erro(e) } }
     setMsg(`${n} produto(s) mapeado(s) com a imagem do catálogo`); recarregar()
   }
+  // verificação de NCM (rotina diária às 03:00; aqui o botão roda a mesma rotina agora)
+  useEffect(() => { api('/api/catalogo/ncm/status').then(setNcmSt).catch(() => {}) }, [])
+  useEffect(() => {
+    if (!ncmSt.rodando) return
+    const t = setInterval(() => api('/api/catalogo/ncm/status').then(s => { setNcmSt(s); if (!s.rodando) { recarregar(); setMsg('Verificação de NCM concluída') } }).catch(() => {}), 2000)
+    return () => clearInterval(t)
+  }, [ncmSt.rodando])
+  const verificarNcm = () => post('/api/catalogo/ncm/verificar-todos')
+    .then(r => { setMsg(r.iniciou ? 'Verificação de NCM iniciada…' : 'Já existe uma verificação em andamento'); setNcmSt(s => ({ ...s, rodando: true })) }).catch(erro)
+  const u = ncmSt.ultima
   const ajustar = () => post(`/api/catalogo/produtos/categoria/${cat}/margem?margemPct=${margem}`)
     .then(n => { setMsg(`Preços recalculados (${n} produtos)`); recarregar() }).catch(erro)
   const desativar = p => window.confirm(`Desativar "${p.nome}"?\nEle some do PDV e das vendas, mas o histórico e a auditoria são mantidos (o PLU continua reservado). Somente o gerente vê e pode reativar.`)
@@ -54,10 +69,14 @@ export function Produtos() {
       <input type="number" value={margem} onChange={e => setMargem(e.target.value)} style={{ width: 70 }} /> %
       <button className="btn" disabled={!cat} onClick={ajustar}>Recalcular preços</button>
       <small>preço = custo médio ÷ (1 − perda) × (1 + margem). Promoções ficam na tela <b>Promoções</b>.</small></div>
+    <div className="barra"><b>NCM:</b>
+      <span>{u?.id ? `última verificação ${new Date(u.fim || u.inicio).toLocaleString('pt-BR')} (${u.origem === 'AGENDADA' ? 'automática diária' : u.origem === 'MANUAL' ? 'manual' : 'ao iniciar'}): ${u.validos} válidos · ${u.invalidos} inválidos · ${u.vencidos} vencidos · ${u.ausentes} sem NCM · ${u.naoVerificados} não verificados${u.normalizados ? ` · ${u.normalizados} códigos normalizados` : ''}` : 'ainda não verificado'}</span>
+      <button className="btn sec" disabled={ncmSt.rodando} onClick={verificarNcm}>{ncmSt.rodando ? 'Verificando…' : '🔎 Verificar NCM de todos agora'}</button>
+      <small>Rotina automática todo dia às 03:00 (BrasilAPI + tabela oficial do Siscomex). A NFC-e e o pagamento com cartão exigem NCM válido.</small></div>
     {semImagem.length > 0 && <div className="barra"><span>🖼️ {semImagem.length} produto(s) sem imagem escolhida têm imagem sugerida pelo nome.</span>
       <button className="btn sec" onClick={mapear}>Mapear imagens do catálogo pelo nome</button></div>}
     {nDesativados > 0 && <p><small>{nDesativados} produto(s) desativado(s) — visíveis somente para o gerente.</small></p>}
-    <table className="tab"><thead><tr><th>Imagem</th><th>PLU</th><th>Atalho (Ctrl+)</th><th>Produto</th><th>Un.</th><th>Categoria</th><th>Custo médio</th><th>Perda %</th><th>Preço</th><th>Ações</th></tr></thead>
+    <table className="tab"><thead><tr><th>Imagem</th><th>PLU</th><th>Atalho (Ctrl+)</th><th>Produto</th><th>Un.</th><th>Categoria</th><th>NCM</th><th>Custo médio</th><th>Perda %</th><th>Preço</th><th>Ações</th></tr></thead>
       <tbody>{lista.map(p => <tr key={p.id} className={p.ativo === false ? 'inativo' : ''}>
         <td>{p.ativo === false ? <ImagemProduto p={p} size={34} /> : <button className="tile-mini" title="Trocar imagem (catálogo)" onClick={() => setSeletor(p)}><ImagemProduto p={p} size={34} /></button>}</td>
         <td>{p.plu}</td>
@@ -67,6 +86,9 @@ export function Produtos() {
         <td>{p.ativo === false ? p.categoria : <select value={p.categoria || ''} onChange={e => atualizar(p, { categoria: e.target.value || null }, `Categoria de "${p.nome}" alterada`)}>
           <option value="">Sem categoria</option>{p.categoria && !categorias.some(c => c.nome === p.categoria) && <option value={p.categoria}>{p.categoria} (desativada)</option>}
           {categorias.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}</select>}</td>
+        <td>{p.ativo === false ? fmtNcm(p.ncm) : <span style={{ whiteSpace: 'nowrap' }}><input key={`${p.id}-${p.ncm}`} defaultValue={p.ncm || ''} maxLength={12} style={{ width: 92 }} placeholder="sem NCM"
+          title={`${fmtNcm(p.ncm)} — altere e saia do campo para salvar (é conferido nas fontes oficiais)`}
+          onBlur={e => { const v = e.target.value; if (v.replace(/\D/g, '') !== (p.ncm || '')) atualizar(p, { ncm: v }, `NCM de "${p.nome}" atualizado e conferido`) }} /> {ncmBadge(p)}</span>}</td>
         <td>{brl(p.custoMedio)}</td><td>{p.taxaPerdaPct}</td><td>{brl(p.precoVarejo)}</td>
         <td>{p.ativo === false ? <button className="btn sec" onClick={() => reativar(p)}>Reativar</button> : <button className="btn sec" onClick={() => desativar(p)}>Desativar</button>}</td></tr>)}</tbody></table>
     {seletor && <SeletorImagem atual={seletor.imagem} onFechar={() => setSeletor(null)} onEscolher={v => { atualizar(seletor, v, `Imagem de "${seletor.nome}" atualizada`); setSeletor(null) }} />}

@@ -21,7 +21,7 @@ public class PreCadastro {
     private static final Logger LOG = Logger.getLogger(PreCadastro.class);
     @ConfigProperty(name = "fruteira.pre-cadastro", defaultValue = "false") boolean automatico;
 
-    public record Resultado(int categoriasNovas, int produtosNovos, int produtosJaExistiam) {}
+    public record Resultado(int categoriasNovas, int produtosNovos, int produtosJaExistiam, int ncmPreenchidos) {}
     private record Linha(int ordem, String nome, String unidade, String categoria, String preco, String perda, String ncm, String imagem) {}
 
     private static final String[][] CATEGORIAS = {
@@ -121,11 +121,16 @@ public class PreCadastro {
             Categoria c = new Categoria(); c.nome = l[0]; c.ordem = ordemMax + Integer.parseInt(l[1]); c.persist();
             cats.put(l[0].toLowerCase(), c); categoriasNovas++;
         }
-        Set<String> nomes = new HashSet<>(); Set<Integer> plus = new HashSet<>();
-        for (Produto p : Produto.<Produto>listAll()) { nomes.add(p.nome.toLowerCase()); if (p.plu != null) plus.add(p.plu); }
-        int novos = 0, existentes = 0;
+        Set<String> nomes = new HashSet<>(); Set<Integer> plus = new HashSet<>(); Map<String, Produto> porNome = new HashMap<>();
+        for (Produto p : Produto.<Produto>listAll()) { nomes.add(p.nome.toLowerCase()); porNome.put(p.nome.toLowerCase(), p); if (p.plu != null) plus.add(p.plu); }
+        int novos = 0, existentes = 0, ncmPreenchidos = 0;
         for (Linha l : PRODUTOS) {
-            if (nomes.contains(l.nome().toLowerCase())) { existentes++; continue; }
+            if (nomes.contains(l.nome().toLowerCase())) {
+                existentes++;
+                Produto ex = porNome.get(l.nome().toLowerCase());     // produto antigo sem NCM: completa (a rotina de NCM confere depois)
+                if (ex != null && l.ncm() != null && (ex.ncm == null || ex.ncm.isBlank())) { ex.ncm = l.ncm(); ex.ncmStatus = null; ex.ncmVerificadoEm = null; ncmPreenchidos++; }
+                continue;
+            }
             Produto p = new Produto();
             p.nome = l.nome(); p.unidade = Produto.Unidade.valueOf(l.unidade());
             Categoria c = cats.get(l.categoria().toLowerCase()); p.categoria = c != null ? c.nome : l.categoria();
@@ -133,8 +138,8 @@ public class PreCadastro {
             p.plu = plus.contains(l.ordem()) ? null : l.ordem();           // PLU já ocupado: fica sem PLU
             if (p.plu != null) plus.add(p.plu);
             p.ncm = l.ncm(); p.imagem = l.imagem(); p.ativo = true;
-            p.persist(); nomes.add(p.nome.toLowerCase()); novos++;
+            p.persist(); nomes.add(p.nome.toLowerCase()); porNome.put(p.nome.toLowerCase(), p); novos++;
         }
-        return new Resultado(categoriasNovas, novos, existentes);
+        return new Resultado(categoriasNovas, novos, existentes, ncmPreenchidos);
     }
 }

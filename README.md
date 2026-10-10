@@ -226,6 +226,24 @@ Tela **Relatórios → Auditoria** (somente gerente): quem fez, quando, o quê e
 | Usuários e perfis | retaguarda | PIN com hash; login real = Keycloak |
 | Balança e periféricos | local | baud rate, TEF (somente configuração), impressora, gaveta, coordenadas |
 
+## NCM (validação, rotina diária e TEF)
+
+A NFC-e exige NCM de **8 dígitos, existente e vigente** em cada item. O sistema trata isso assim:
+
+- **Cadastro de produto**: ao digitar o NCM, a tela consulta `GET /api/catalogo/ncm/{codigo}` (BrasilAPI `/api/ncm/v1/{codigo}` primeiro; se falhar, tabela oficial do Siscomex/Portal Único) e mostra descrição e vigência. NCM inválido ou vencido é **recusado** (422) com sugestões da mesma subposição. O sistema **nunca troca um NCM sozinho**: decisão fiscal é sua.
+- **Listagem de produtos**: coluna **NCM** (editável, revalida ao sair do campo) com selo VÁLIDO / INVÁLIDO / VENCIDO / AUSENTE.
+- **Rotina diária**: `@Scheduled` às 03:00 (`NCM_CRON`, padrão `0 0 3 * * ?`) confere o NCM de todos os produtos, normaliza códigos formatados (`0803.90.00` → `08039000`) e grava status/vigência. Se as APIs estiverem fora do ar, mantém o último status confirmado. Também roda na subida para produtos ainda não verificados.
+- **Botão manual**: em *Produtos e preços* → “🔎 Verificar NCM de todos agora” (supervisor ou gerente; auditado), com resumo da última execução.
+- **TEF/cartão**: a cobrança no cartão é **bloqueada** no PDV e no `vendas-service` enquanto algum item não tiver NCM VÁLIDO. Variáveis: `FRUTEIRA_NCM_OBRIGATORIO_TEF` (padrão `true`), `FRUTEIRA_NCM_OBRIGATORIO` (bloqueia qualquer venda, padrão `false`), `FRUTEIRA_NCM_AGENDADO`, `FRUTEIRA_NCM_NA_SUBIDA`.
+- Produtos do pré-cadastro nascem sem status; a verificação da subida os confere. Até lá, cartão fica bloqueado nesses itens.
+
+## Atalhos novos do PDV
+
+- **Ctrl + ← / →** troca a aba (categoria). Produtos ordenados **alfabeticamente** em cada aba.
+- **Alt + nº do PLU + Enter** adiciona o produto; o PLU digitado aparece no campo do canto superior esquerdo (no lugar da imagem da fruteira).
+- **Alt + \* + quantidade + Enter** multiplica o **último item adicionado**, somente se vendido **por unidade** (1–999). Esc cancela, Backspace apaga.
+- Alguns sistemas/navegadores interceptam Alt+tecla; se isso ocorrer, use o campo de código de barras (F4).
+
 ## Pendências para produção
 - NFC-e real (SEFAZ/Focus NFe), PIX dinâmico via PSP com webhook, SDK de TEF (PayGo/SiTef).
 - Autenticação (Keycloak) e autorização por perfil no backend (hoje o menu por perfil é só visual).

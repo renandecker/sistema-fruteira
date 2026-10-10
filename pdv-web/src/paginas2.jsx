@@ -21,7 +21,12 @@ const dataBR = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : 
 export const TECLAS = [...'0123456789ABCDEFGHIJKLMOPQRSUVXYZ']
 export function NovoProduto({ onSave, usados = [], categorias = [] }) {
   const ini = { nome: '', unidade: 'KG', categoria: '', precoVarejo: '', plu: '', atalho: '', taxaPerdaPct: 0, ncm: '', codigoBarras: '', imagem: '', fotoUrl: '' }
-  const [f, s, setF] = useForm(ini); const [msg, setMsg] = useState(''); const [seletor, setSeletor] = useState(false)
+  const [f, s, setF] = useForm(ini); const [msg, setMsg] = useState(''); const [seletor, setSeletor] = useState(false); const [ncmInfo, setNcmInfo] = useState(null)
+  useEffect(() => {      // confere o NCM nas fontes oficiais (BrasilAPI / Siscomex) enquanto digita
+    const n = (f.ncm || '').replace(/\D/g, ''); if (n.length < 8) { setNcmInfo(null); return }
+    const t = setTimeout(() => api(`/api/catalogo/ncm/${n}`).then(setNcmInfo).catch(() => setNcmInfo({ status: 'NAO_VERIFICADO', mensagem: 'Não foi possível consultar agora' })), 500)
+    return () => clearTimeout(t)
+  }, [f.ncm])
   const sug = sugerirImagem(f.nome)
   const escolhida = f.imagem ? CATALOGO.find(i => i.key === f.imagem) : null
   const salvar = () => post('/api/catalogo/produtos', { ...f, precoVarejo: +f.precoVarejo, plu: f.plu ? +f.plu : null, taxaPerdaPct: +f.taxaPerdaPct,
@@ -38,7 +43,10 @@ export function NovoProduto({ onSave, usados = [], categorias = [] }) {
       <label>Atalho no caixa (Ctrl + …) <small>opcional</small><select value={f.atalho} onChange={s('atalho')}><option value="">Sem atalho</option>
         {TECLAS.map(t => <option key={t} value={t} disabled={usados.includes(t)}>{t}{usados.includes(t) ? ' (em uso)' : ''}</option>)}</select></label>
       <label>Perda esperada %<input type="number" value={f.taxaPerdaPct} onChange={s('taxaPerdaPct')} /></label>
-      <label>NCM<input value={f.ncm} onChange={s('ncm')} /></label>
+      <label>NCM <small>8 dígitos, conferido online</small><input value={f.ncm} onChange={s('ncm')} maxLength={12} />
+        {ncmInfo && <small style={{ color: ncmInfo.status === 'VALIDO' ? 'var(--verde-escuro)' : ncmInfo.status === 'NAO_VERIFICADO' ? '#b8860b' : 'var(--vermelho)' }}>
+          {ncmInfo.status === 'VALIDO' ? `✔ ${ncmInfo.descricao} (${ncmInfo.fonte})` : `${ncmInfo.status === 'NAO_VERIFICADO' ? '⚠' : '✖'} ${ncmInfo.mensagem}`}
+          {ncmInfo.sugestoes?.length > 0 && <> — sugestões: {ncmInfo.sugestoes.slice(0, 4).map(x => <button type="button" key={x.ncm} className="btn sec" style={{ padding: '0 6px', margin: 2 }} title={x.descricao} onClick={() => setF({ ...f, ncm: x.ncm })}>{x.ncm}</button>)}</>}</small>}</label>
       <label>Cód. barras<input value={f.codigoBarras} onChange={s('codigoBarras')} /></label>
       <label>Imagem no PDV
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

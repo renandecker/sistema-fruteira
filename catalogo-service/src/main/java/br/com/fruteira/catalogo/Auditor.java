@@ -28,6 +28,11 @@ public class Auditor {
         try { return mapper.writeValueAsString(o); } catch (Exception e) { return String.valueOf(o); }
     }
     /** true se o usuário atual é gerente (token em produção; cabeçalho X-Perfil em desenvolvimento) */
+    public boolean supervisorOuMais() {
+        if (identity != null && !identity.isAnonymous()) return identity.getRoles().contains("gerente") || identity.getRoles().contains("supervisor");
+        String p = rc.request().getHeader("X-Perfil");
+        return "gerente".equalsIgnoreCase(p) || "supervisor".equalsIgnoreCase(p);
+    }
     public boolean ehGerente() {
         if (identity != null && !identity.isAnonymous()) return identity.getRoles().contains("gerente");
         return "gerente".equalsIgnoreCase(rc.request().getHeader("X-Perfil"));

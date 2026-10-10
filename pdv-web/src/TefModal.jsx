@@ -7,7 +7,7 @@ const PASSOS = [['AGUARDANDO_CARTAO', '1 Cartão'], ['AGUARDANDO_SENHA', '2 Senh
 const esperar = ms => new Promise(r => setTimeout(r, ms))
 
 /** Cobrança no cartão: inicia no servidor, dispara o agente, mostra as mensagens do pinpad e devolve o resultado. */
-export default function TefModal({ valor, meio, parcelas, onAprovada, onManual, onFechar }) {
+export default function TefModal({ valor, meio, parcelas, produtoIds = [], onAprovada, onManual, onFechar }) {
   const [e, setE] = useState({ estado: 'INICIANDO', mensagem: 'Conectando ao agente TEF…' })
   const [erro, setErro] = useState(null)          // { texto, repetir, manual }
   const [tentativa, setTentativa] = useState(0)
@@ -29,7 +29,7 @@ export default function TefModal({ valor, meio, parcelas, onAprovada, onManual, 
     ;(async () => {
       let tx
       try {
-        tx = await post('/api/vendas/tef/iniciar', { valor, tipo: tipoTef(meio, parcelas), parcelas: meio === 'CREDITO' ? parcelas : 1, terminal: cfg().tefTerminal || 'PDV1' })
+        tx = await post('/api/vendas/tef/iniciar', { valor, tipo: tipoTef(meio, parcelas), parcelas: meio === 'CREDITO' ? parcelas : 1, terminal: cfg().tefTerminal || 'PDV1', produtoIds })
       } catch (err) { if (ref.current.vivo) setErro({ texto: 'Não foi possível registrar a transação no servidor: ' + (String(err.message || err) || 'sem conexão'), manual: true }); return }
       ref.current.requisicao = tx.requisicao
       try {

@@ -81,3 +81,44 @@ test('entrada de mercadoria envia o fornecedor e registra a cotação', async ()
   expect(JSON.parse(chamadas.find(x => x.url.includes('/cotacoes')).o.body)).toMatchObject({ produtoNome: 'Alface Crespa', fornecedor: 'CEASA Central', preco: 5.5 })
   expect(document.body.textContent).toMatch(/NF 10/)   // histórico exibe o fornecedor da entrada anterior
 })
+
+// ---------- atalhos e ordem (NCM / PLU / multiplicar) ----------
+const alt = (code, key = '') => fireEvent.keyDown(window, { altKey: true, code, key })
+const abaAtiva = c => c.querySelector('.abas .ativa, .abas .on, .abas [aria-selected=true]')?.textContent
+test('produtos em ordem alfabética', async () => {
+  const c = await abrir()
+  const nomes = [...c.querySelectorAll('button.card')].map(b => /(Alface|Banana|Cebola)\s\w+/.exec(b.textContent)[0])
+  const ordenado = [...nomes].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  expect(nomes.length).toBeGreaterThan(1); expect(nomes).toEqual(ordenado)
+})
+test('Alt + PLU + Enter adiciona o produto e mostra o PLU digitado no campo do topo', async () => {
+  const c = await abrir()
+  alt('Digit2', '2'); expect(c.querySelector('.plu-campo input').value).toMatch(/2/); expect(c.querySelector('.plu-campo').textContent).toMatch(/Cebola/)
+  fireEvent.keyDown(window, { key: 'Enter' })
+  expect(itens(c)).toBe(1); expect(c.querySelector('aside ul').textContent).toMatch(/Cebola/)
+  expect(c.querySelector('img[alt*="ruteira" i]')).toBeNull()
+})
+test('Alt + * + número multiplica o último item (só por unidade)', async () => {
+  const c = await abrir()
+  fireEvent.click(card(c, 'Alface'))
+  alt('NumpadMultiply', '*'); fireEvent.keyDown(window, { key: '5' }); fireEvent.keyDown(window, { key: 'Enter' })
+  expect(itens(c)).toBe(1); expect(c.querySelector('aside ul').textContent).toMatch(/5\s*×/)
+  expect(c.querySelector('aside').textContent).toMatch(/17,50/)                      // 5 × 3,50
+})
+test('Alt + * não multiplica item vendido por kg', async () => {
+  const c = await abrir()
+  fireEvent.change(c.querySelector('.sim-peso input'), { target: { value: '0.5' } })
+  fireEvent.click(card(c, 'Banana'))
+  alt('NumpadMultiply', '*'); fireEvent.keyDown(window, { key: '4' }); fireEvent.keyDown(window, { key: 'Enter' })
+  expect(c.querySelector('aside ul').textContent).toMatch(/0[,.]?500/)
+  expect(c.querySelector('aside').textContent).not.toMatch(/32,00/)
+})
+test('Ctrl + setas trocam de aba', async () => {
+  const c = await abrir()
+  const antes = [...c.querySelectorAll('button.card')].map(b => b.textContent).join()
+  fireEvent.keyDown(window, { key: 'ArrowRight', ctrlKey: true })
+  const depois = [...c.querySelectorAll('button.card')].map(b => b.textContent).join()
+  expect(depois).not.toBe(antes)
+  fireEvent.keyDown(window, { key: 'ArrowLeft', ctrlKey: true })
+  expect([...c.querySelectorAll('button.card')].map(b => b.textContent).join()).toBe(antes)
+})

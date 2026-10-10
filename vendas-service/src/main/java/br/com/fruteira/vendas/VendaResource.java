@@ -23,6 +23,9 @@ public class VendaResource {
     @ConfigProperty(name = "fruteira.tef.obrigatorio", defaultValue = "false") boolean tefObrigatorio;
     /** true = o meio PIX só vale com Pix confirmado pelo PSP (pixId) */
     @ConfigProperty(name = "fruteira.pix.obrigatorio", defaultValue = "false") boolean pixObrigatorio;
+    /** NCM válido nos itens: sempre que houver pagamento TEF (padrão) e, opcionalmente, em toda venda */
+    @ConfigProperty(name = "fruteira.ncm.obrigatorio-tef", defaultValue = "true") boolean ncmObrigatorioTef;
+    @ConfigProperty(name = "fruteira.ncm.obrigatorio", defaultValue = "false") boolean ncmObrigatorio;
 
     /** pesoBalanca=true só pode ser enviado pelo agente de balança do PDV (leitura por cabo). */
     public record ItemReq(Long produtoId, BigDecimal quantidade, boolean pesoBalanca) {}
@@ -31,10 +34,11 @@ public class VendaResource {
 
     @POST @Transactional
     public Venda finalizar(VendaReq req) {
-        Venda v = new Venda(); v.cpfCliente = req.cpf();
+        Venda v = new Venda(); v.cpfCliente = req.cpf(); List<String> problemasNcm = new ArrayList<>();
         for (ItemReq ir : req.itens()) {
             ProdutoDTO p = catalogo.buscar(ir.produtoId());
-            if (Boolean.FALSE.equals(p.ativo())) throw new WebApplicationException("Produto desativado: " + p.nome(), 422);              // preço SEMPRE vem do servidor
+            if (Boolean.FALSE.equals(p.ativo())) throw new WebApplicationException("Produto desativado: " + p.nome(), 422);
+            { String pn = p.problemaNcm(); if (pn != null) problemasNcm.add(p.nome() + " (" + pn + ")"); }              // preço SEMPRE vem do servidor
             if ("KG".equals(p.unidade()) && !ir.pesoBalanca())
                 throw new WebApplicationException("Peso digitado manualmente não é permitido para produto de balança", 422);
             Item i = new Item(); i.venda = v; i.produtoId = p.id(); i.nome = p.nome();
@@ -69,6 +73,8 @@ public class VendaResource {
             pago = pago.add(pr.valor()); v.pagamentos.add(pg);
         }
         if (pago.compareTo(v.total) < 0) throw new WebApplicationException("Pagamento insuficiente", 422);
+        if (!problemasNcm.isEmpty() && (ncmObrigatorio || (ncmObrigatorioTef && !tefs.isEmpty())))
+            throw Http.erro(422, "A NFC-e exige NCM válido e vigente em todos os itens. Corrija em Produtos e preços: " + String.join("; ", problemasNcm));
         v.status = Venda.Status.PAGA; v.persist();
         tefs.forEach(t -> { t.vendaId = v.id; t.atualizadoEm = LocalDateTime.now(); });   // vincula o cartão à venda
         pixs.forEach(px -> px.vendaId = v.id);                                              // vincula o Pix à venda
