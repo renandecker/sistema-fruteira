@@ -10,6 +10,7 @@ import java.util.*;
 @Entity
 public class Venda extends PanacheEntity {
     public LocalDateTime data = LocalDateTime.now();
+    public String usuario;                    // operador que fez a venda (conferência do caixa)
     public String cpfCliente;                 // fidelidade / cashback
     public BigDecimal total = BigDecimal.ZERO;
     public BigDecimal desconto = BigDecimal.ZERO;

@@ -4,7 +4,7 @@ export const NIVEL = { operador: 1, supervisor: 2, gerente: 3 }
 export const MENU = [
   { grupo: 'Vendas', itens: [
     { id: 'pdv', icone: '🛒', titulo: 'PDV / Caixa', status: 'ok', perfil: 'operador' },
-    { id: 'fechamento', icone: '💵', titulo: 'Fechamento de caixa', status: 'ok', perfil: 'operador' },
+    { id: 'fechamento', icone: '💵', titulo: 'Caixa: turno e sangria', status: 'ok', perfil: 'operador', desc: 'Abertura com fundo de troco, sangria, suprimento e fechamento cego.' },
     { id: 'selfcheckout', icone: '🧺', titulo: 'Self-checkout', status: 'ok', perfil: 'supervisor', desc: 'Terminal de autoatendimento com balança e leitor de código de barras.' },
     { id: 'consulta', icone: '🏷️', titulo: 'Consulta de preço', status: 'ok', perfil: 'operador', desc: 'Terminal touch no salão para pesar e conferir o valor antes do caixa.' },
   ]},
@@ -27,6 +27,7 @@ export const MENU = [
   ]},
   { grupo: 'Financeiro e Fiscal', itens: [
     { id: 'contas', icone: '💳', titulo: 'Contas a pagar/receber', status: 'ok', perfil: 'gerente', desc: 'Lançamentos, vencimentos e baixas.' },
+    { id: 'caixagerente', icone: '🧾', titulo: 'Conferência de caixa', status: 'ok', perfil: 'gerente', desc: 'Sangrias, saldo esperado x contado e diferenças por turno.' },
     { id: 'tef', icone: '📟', titulo: 'Transações TEF', status: 'ok', perfil: 'supervisor' },
     { id: 'pix', icone: '💠', titulo: 'Transações PIX', status: 'ok', perfil: 'supervisor' },
     { id: 'dre', icone: '📊', titulo: 'DRE e fluxo de caixa', status: 'ok', perfil: 'gerente', desc: 'DRE simplificado e fluxo diário/mensal.' },

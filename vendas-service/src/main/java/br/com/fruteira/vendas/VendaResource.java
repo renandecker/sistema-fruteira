@@ -34,7 +34,7 @@ public class VendaResource {
 
     @POST @Transactional
     public Venda finalizar(VendaReq req) {
-        Venda v = new Venda(); v.cpfCliente = req.cpf(); List<String> problemasNcm = new ArrayList<>();
+        Venda v = new Venda(); v.usuario = auditor.usuario(); v.cpfCliente = req.cpf(); List<String> problemasNcm = new ArrayList<>();
         for (ItemReq ir : req.itens()) {
             ProdutoDTO p = catalogo.buscar(ir.produtoId());
             if (Boolean.FALSE.equals(p.ativo())) throw new WebApplicationException("Produto desativado: " + p.nome(), 422);
@@ -144,16 +144,5 @@ public class VendaResource {
     public List<Object[]> abc() {
         return Item.getEntityManager().createQuery(
             "select i.nome, sum(i.subtotal) from ItemVenda i where i.venda.status = :s group by i.nome order by sum(i.subtotal) desc", Object[].class).setParameter("s", Venda.Status.PAGA).getResultList();
-    }
-    /** Sangria cega: operador informa o contado; sistema compara só no backoffice */
-    public record Fechamento(BigDecimal contadoDinheiro) {}
-    @POST @Path("/caixa/fechamento")
-    public java.util.Map<String, Object> fechar(Fechamento f) {
-        BigDecimal esperado = Pagamento.getEntityManager().createQuery(
-            "select coalesce(sum(p.valor),0) from PagamentoVenda p where p.meio='DINHEIRO' and p.venda.status = :s", BigDecimal.class).setParameter("s", Venda.Status.PAGA).getSingleResult();
-        BigDecimal dif = f.contadoDinheiro().subtract(esperado);
-        // fechamento cego: a diferença vai só para a trilha de auditoria (tela do gerente), nunca para o operador
-        auditor.registrar("CADASTRO", "Fechamento de caixa", null, "Contado R$ " + f.contadoDinheiro() + " | esperado R$ " + esperado + " | diferença R$ " + dif, null, null);
-        return java.util.Map.of("registrado", true);
     }
 }

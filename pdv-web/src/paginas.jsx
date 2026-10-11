@@ -171,14 +171,3 @@ export function Abc() {
   </Pagina>
 }
 
-export function Fechamento() {
-  const [v, setV] = useState(''); const [ok, setOk] = useState(false)
-  // Fechamento cego: a diferença NÃO é mostrada ao operador
-  const enviar = () => post('/api/vendas/vendas/caixa/fechamento', { contadoDinheiro: +v }).then(() => setOk(true))
-  return <Pagina titulo="💵 Fechamento de caixa">
-    <p>Conte o dinheiro da gaveta e informe o valor. O saldo do sistema não é exibido.</p>
-    {ok ? <div className="msg">Contagem registrada ✔ A conferência será feita pelo gerente.</div> :
-      <div className="form"><label>Dinheiro contado (R$)<input type="number" value={v} onChange={e => setV(e.target.value)} /></label>
-        <button className="btn" disabled={!v} onClick={enviar}>Encerrar turno</button></div>}
-  </Pagina>
-}

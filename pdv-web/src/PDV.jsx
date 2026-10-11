@@ -7,6 +7,7 @@ import { PROD } from './auth.js'
 import TefModal from './TefModal.jsx'
 import PixModal from './PixModal.jsx'
 import { pixAtivo, pixPendencias } from './pix.js'
+import { SangriaModal } from './Caixa.jsx'
 import { cartoesDoMeio, meioDeBeneficio, nomeCartao } from './cartoes.js'
 import { tefAtivo, desfazerTef, confirmarTef, imprimirComprovantes, reconciliar, cartoesNfce } from './tef.js'
 import { decodificarEtiqueta } from './etiqueta.js'
@@ -25,6 +26,7 @@ let seq = 0
 export default function PDV() {
   const [produtos, setProdutos] = useState([]); const [categorias, setCategorias] = useState([]); const [atalho, setAtalho] = useState(null)   // atalho: { tipo: 'plu' | 'mult', texto }
   const [itens, setItens] = useState([]); const [codigo, setCodigo] = useState(''); const [cpf, setCpf] = useState(''); const [pagando, setPagando] = useState(false)
+  const [caixa, setCaixa] = useState(null); const [sangria, setSangria] = useState(false)
   const [msg, setMsg] = useState(''); const [aba, setAba] = useState(0); const [flash, setFlash] = useState(null); const [avisoPeso, setAvisoPeso] = useState(false)
   const balanca = useBalanca(); const fim = useRef(null); const campo = useRef(null); const bipCtx = useRef(null)
 
@@ -32,7 +34,8 @@ export default function PDV() {
     api('/api/catalogo/produtos').then(setProdutos).catch(() => setMsg('Catálogo indisponível'))
     api('/api/catalogo/categorias').then(setCategorias).catch(() => {})
   }
-  useEffect(() => { carregar() }, [])
+  const carregarCaixa = () => api('/api/vendas/caixa/turno').then(setCaixa).catch(() => {})
+  useEffect(() => { carregar(); carregarCaixa() }, [])
   useEffect(() => { reconciliar().then(r => r.resolvidas && setMsg(`${r.resolvidas} transação(ões) de cartão pendente(s) reconciliada(s)`)) }, [])   // TEF: resolve o que ficou no ar após queda
   useEffect(() => { pixPendencias().then(n => n > 0 && setMsg(`⚠ ${n} Pix recebido(s) sem venda: veja Financeiro e Fiscal → Transações PIX`)) }, [])
   useEffect(() => { const on = () => { sincronizar(enviarVenda).then(() => reconciliar()); carregar() }; window.addEventListener('online', on); return () => window.removeEventListener('online', on) }, [])
@@ -154,6 +157,7 @@ export default function PDV() {
   // (Ctrl+Tab é reservado pelo navegador e não pode ser capturado por páginas web; por isso F4)
   useEffect(() => {
     const h = e => {
+      if (sangria) return                                   // modal de sangria aberto: o teclado é dele
       const emCampo = ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)
       const emOutroCampo = emCampo && e.target !== campo.current        // o campo de código de barras não bloqueia os atalhos
       if (!pagando && !emOutroCampo) {
@@ -186,6 +190,7 @@ export default function PDV() {
         return
       }
       if (pagando) return
+      if (e.key === 'F8') { e.preventDefault(); setSangria(true); return }     // sangria (cega)
       if (e.key === 'F4') { e.preventDefault(); campo.current?.focus(); campo.current?.select(); return }
       if (emOutroCampo) return
       if (e.key === 'Tab' && !e.altKey && !e.ctrlKey && !e.metaKey) {   // "Alt+Tab" do caixa: o SO reserva Alt+Tab, então usamos Tab
@@ -213,7 +218,7 @@ export default function PDV() {
     const venda = { cpf, atacado: false, pagamentos: pagamentos.map(({ meio, valor, tefId, pixId, operadora }) => ({ meio, valor, ...(operadora ? { operadora } : {}), ...(tefId ? { tefId } : {}), ...(pixId ? { pixId } : {}) })),
       itens: itens.map(i => ({ produtoId: i.produtoId, quantidade: i.quantidade, pesoBalanca: i.pesoBalanca })) }
     try {
-      const v = await enviarVenda(venda); setMsg('Venda concluída ✔'); posVenda(v, venda.cpf); carregar()    // recarrega ranking e promoções
+      const v = await enviarVenda(venda); setMsg('Venda concluída ✔'); posVenda(v, venda.cpf); carregar(); carregarCaixa()    // recarrega ranking e promoções
       if (cartoes.length) setTimeout(() => concluirTef(cartoes), 0)
     } catch (e) {
       if (e instanceof TypeError) { enfileirar(venda); setMsg('Sem rede: venda salva offline' + (cartoes.length ? ' (os cartões serão confirmados na reconciliação)' : '')) }
@@ -247,9 +252,11 @@ export default function PDV() {
           <span className={`peso ${avisoPeso ? 'alerta' : ''}`}>{balanca.peso.toFixed(3)} kg</span>
         </header>
         {msg && <div className="msg" role="status">{msg}</div>}
+        {caixa?.aberto === false && <div className="msg" role="status">Turno de caixa fechado: abra em <b>Caixa: turno e sangria</b> para registrar fundo de troco e sangrias.</div>}
+        {caixa?.sangriaRecomendada && <div className="msg" role="alert">💰 Gaveta cheia: faça uma <b>sangria</b> (F8).</div>}
         <div className="abas">
           {abas.map((a, k) => <button key={a.id} className={k === idxAba ? 'on' : ''} onClick={() => setAba(k)}>{a.nome}</button>)}
-          <small>F4 código de barras · Ctrl+←/→ ou Tab troca a aba · Alt+PLU+Enter · Alt+*+nº+Enter multiplica · Ctrl+tecla do produto · F2 pagar</small>
+          <small>F4 código de barras · Ctrl+←/→ ou Tab troca a aba · Alt+PLU+Enter · Alt+*+nº+Enter multiplica · Ctrl+tecla do produto · F2 pagar · F8 sangria</small>
         </div>
         <div className="grid">
           {visiveis.map(p => {
@@ -283,6 +290,7 @@ export default function PDV() {
         <div className="total">{brl(total)}</div>
         <button className="btn pagar" disabled={!itens.length} onClick={() => setPagando(true)}>Pagar (F2)</button>
       </aside>
+      {sangria && <SangriaModal onFechar={() => { setSangria(false); focarCampo() }} onFeita={() => { setSangria(false); setMsg('Sangria registrada ✔'); carregarCaixa(); focarCampo() }} />}
       {pagando && <Pagamento total={total} desconto={descontoTotal} onOk={finalizar} problemasNcm={problemasNcm} produtoIds={[...new Set(itens.map(i => i.produtoId))]} onCancel={() => { setPagando(false); focarCampo() }} />}
     </div>)
 }

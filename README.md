@@ -262,8 +262,26 @@ Catálogo em `pdv-web/src/cartoes.js` e `vendas-service/.../Cartoes.java` (mante
 - Rode o gerador na máquina de desenvolvimento (Java, Maven, Node). O **servidor** só precisa de Java 21 + Docker (+ Node se não usar nginx) — sem Maven e sem compilar.
 - Mudou `KEYCLOAK_URL`/`FRONT_URL`/domínios? Gere de novo: a URL do Keycloak é embutida no front no build.
 
+## Caixa: turno, sangria e fechamento cego
+
+- **Caixa: turno e sangria** (operador): abre o turno com o **fundo de troco**, faz **sangria** (retirada para o cofre) e **suprimento** (reforço de troco) e encerra informando o dinheiro **contado**. Atalho no PDV: **F8** abre a sangria; o PDV avisa "Gaveta cheia" quando o saldo passa de `CAIXA_LIMITE_GAVETA` (padrão R$ 500), **sem mostrar valores**.
+- **Cego**: o operador informa o que contou e **nunca vê o saldo do sistema**. A sangria imprime um comprovante (nº, operador, valor, motivo, linha de assinatura).
+- **Conferência de caixa** (gerente): por turno, fundo, sangrias, suprimentos, **esperado × contado × diferença**; sangria maior que o saldo do sistema aparece com ⚠. Tudo também vai para a Auditoria.
+- Esperado = fundo de troco + vendas em dinheiro do operador no turno + suprimentos − sangrias. Cada venda guarda o operador (`usuario`). Vendas feitas offline entram no turno do operador que as sincronizar.
+- Um turno aberto por operador; o fechamento exige turno aberto. Não há trava de venda sem turno (apenas um aviso no PDV).
+
 ## Pendências para produção
-- NFC-e real (SEFAZ/Focus NFe), PIX dinâmico via PSP com webhook, SDK de TEF (PayGo/SiTef).
-- Autenticação (Keycloak) e autorização por perfil no backend (hoje o menu por perfil é só visual).
-- Banco local no PDV (SQLite) para o modo híbrido; a fila offline atual fica no navegador.
+
+**Antes de operar de verdade**
+- Compilar e subir os 5 serviços Java numa máquina com Maven (nada do Java foi compilado/executado no ambiente de desenvolvimento do assistente; só checagem de sintaxe). Rode `gerar-producao` e acompanhe os `logs/`.
+- Confirmar o formato real das APIs de NCM (BrasilAPI e Siscomex): os leitores aceitam variações de campos, mas não foram testados contra as APIs reais.
+- **NFC-e real**: hoje é simulada (chave/protocolo fictícios). Integrar emissor (SEFAZ/Focus NFe) em `NfceResource`, incluindo CNPJ da credenciadora, tPag dos vales (10/11) e certificado digital.
+- **TEF real**: trocar `TEF_PROVIDER=simulador` pelo provedor contratado (CliSiTef/PayGo) e homologar; vales (Alelo, Ticket, Pluxee, VR...) estão lançados manualmente, sem autorização online.
+- **PIX real**: `PIX_PROVIDER=psp` com credenciais/certificado do PSP e `FRUTEIRA_PIX_WEBHOOK_SEGREDO`.
+- Trocar as senhas temporárias do Keycloak (`trocar123`) e definir `TEF_TOKEN` igual nos caixas.
+- Testes automatizados existem só no front (24); faltam testes dos serviços Java.
+
+**Evoluções**
+- Banco local no PDV (SQLite) para o modo híbrido; a fila offline atual fica no navegador. Sincronização nuvem+local completa.
+- Precificação dinâmica (preço por fim de dia/validade) e delivery com pedidos.
 - Mensageria (Kafka/RabbitMQ) e API Gateway entre os serviços.
