@@ -154,8 +154,9 @@ public class NfceResource {
     }
     private int proximoNumero() {
         return QuarkusTransaction.requiringNew().call(() -> {
-            Integer max = Nota.getEntityManager().createQuery("select max(n.numero) from Nota n", Integer.class).getSingleResult();
-            return Math.max(max == null ? 0 : max + 1, fiscal.numeroInicial());
+            // Panache resolve o nome da entidade interna (Entities$Nota); HQL escrito à mão ("from Nota") não encontra a classe aninhada
+            Nota ultima = Nota.find("numero is not null order by numero desc").firstResult();
+            return Math.max(ultima == null ? 1 : ultima.numero + 1, fiscal.numeroInicial());
         });
     }
     private Nota achar(Long id) { Nota n = Nota.findById(id); if (n == null) throw new NotFoundException(); return n; }
