@@ -1,5 +1,6 @@
 package br.com.fruteira.vendas;
 
+import java.util.Optional;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -36,15 +37,22 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
  */
 @ApplicationScoped
 public class BacenPixProvider implements PixProvider {
-    @ConfigProperty(name = "pix.psp.base-url", defaultValue = "") String baseUrl;
-    @ConfigProperty(name = "pix.psp.token-url", defaultValue = "") String tokenUrl;
-    @ConfigProperty(name = "pix.psp.client-id", defaultValue = "") String clientId;
-    @ConfigProperty(name = "pix.psp.client-secret", defaultValue = "") String clientSecret;
+    @ConfigProperty(name = "pix.psp.base-url") Optional<String> baseUrlCfg;   // vazio = não configurado
+    @ConfigProperty(name = "pix.psp.token-url") Optional<String> tokenUrlCfg;   // vazio = não configurado
+    @ConfigProperty(name = "pix.psp.client-id") Optional<String> clientIdCfg;   // vazio = não configurado
+    @ConfigProperty(name = "pix.psp.client-secret") Optional<String> clientSecretCfg;   // vazio = não configurado
     @ConfigProperty(name = "pix.psp.token-formato", defaultValue = "basic-json") String formato;      // basic-json (Efí) | form (Itaú e outros)
-    @ConfigProperty(name = "pix.psp.certificado", defaultValue = "") String certificado;              // caminho do .p12 (mTLS)
-    @ConfigProperty(name = "pix.psp.certificado-senha", defaultValue = "") String certificadoSenha;
+    @ConfigProperty(name = "pix.psp.certificado") Optional<String> certificadoCfg;              // caminho do .p12 (mTLS)   // vazio = não configurado
+    @ConfigProperty(name = "pix.psp.certificado-senha") Optional<String> certificadoSenhaCfg;   // vazio = não configurado
     @ConfigProperty(name = "pix.psp.skip-mtls-webhook", defaultValue = "false") boolean skipMtlsWebhook;
-    @ConfigProperty(name = "pix.chave", defaultValue = "") String chave;
+    @ConfigProperty(name = "pix.chave") Optional<String> chaveCfg;   // vazio = não configurado
+    private String baseUrl() { return baseUrlCfg.orElse(""); }
+    private String tokenUrl() { return tokenUrlCfg.orElse(""); }
+    private String clientId() { return clientIdCfg.orElse(""); }
+    private String clientSecret() { return clientSecretCfg.orElse(""); }
+    private String certificado() { return certificadoCfg.orElse(""); }
+    private String certificadoSenha() { return certificadoSenhaCfg.orElse(""); }
+    private String chave() { return chaveCfg.orElse(""); }
     @Inject ObjectMapper mapper;
 
     private volatile HttpClient http; private String token; private Instant tokenAte = Instant.EPOCH;
@@ -54,11 +62,11 @@ public class BacenPixProvider implements PixProvider {
     private synchronized HttpClient cliente() throws Exception {
         if (http == null) {
             HttpClient.Builder b = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10));
-            if (!certificado.isBlank()) {
+            if (!certificado().isBlank()) {
                 KeyStore ks = KeyStore.getInstance("PKCS12");
-                try (InputStream in = Files.newInputStream(Path.of(certificado))) { ks.load(in, certificadoSenha.toCharArray()); }
+                try (InputStream in = Files.newInputStream(Path.of(certificado()))) { ks.load(in, certificadoSenha().toCharArray()); }
                 KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-                kmf.init(ks, certificadoSenha.toCharArray());
+                kmf.init(ks, certificadoSenha().toCharArray());
                 SSLContext ctx = SSLContext.getInstance("TLS"); ctx.init(kmf.getKeyManagers(), null, null);
                 b.sslContext(ctx);
             }
@@ -70,14 +78,14 @@ public class BacenPixProvider implements PixProvider {
 
     private synchronized String token() throws Exception {
         if (token != null && Instant.now().isBefore(tokenAte)) return token;
-        if (baseUrl.isBlank() || clientId.isBlank()) throw new IllegalStateException("PSP não configurado (PIX_PSP_URL, PIX_PSP_CLIENT_ID, PIX_PSP_CLIENT_SECRET)");
-        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(tokenUrl.isBlank() ? baseUrl + "/oauth/token" : tokenUrl)).timeout(Duration.ofSeconds(15));
+        if (baseUrl().isBlank() || clientId().isBlank()) throw new IllegalStateException("PSP não configurado (PIX_PSP_URL, PIX_PSP_CLIENT_ID, PIX_PSP_CLIENT_SECRET)");
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(tokenUrl().isBlank() ? baseUrl() + "/oauth/token" : tokenUrl())).timeout(Duration.ofSeconds(15));
         if ("form".equalsIgnoreCase(formato))
             b.header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(
-                "grant_type=client_credentials&client_id=" + enc(clientId) + "&client_secret=" + enc(clientSecret) + "&scope=" + enc("cob.write cob.read pix.read pix.write webhook.write")));
+                "grant_type=client_credentials&client_id=" + enc(clientId()) + "&client_secret=" + enc(clientSecret()) + "&scope=" + enc("cob.write cob.read pix.read pix.write webhook.write")));
         else
             b.header("Content-Type", "application/json")
-             .header("Authorization", "Basic " + Base64.getEncoder().encodeToString((clientId + ":" + clientSecret).getBytes(StandardCharsets.UTF_8)))
+             .header("Authorization", "Basic " + Base64.getEncoder().encodeToString((clientId() + ":" + clientSecret()).getBytes(StandardCharsets.UTF_8)))
              .POST(HttpRequest.BodyPublishers.ofString("{\"grant_type\":\"client_credentials\"}"));
         HttpResponse<String> r = cliente().send(b.build(), HttpResponse.BodyHandlers.ofString());
         if (r.statusCode() / 100 != 2) throw new IllegalStateException("PSP recusou a autenticação (HTTP " + r.statusCode() + ")");
@@ -87,7 +95,7 @@ public class BacenPixProvider implements PixProvider {
         return token;
     }
     private JsonNode chamar(String metodo, String caminho, Object corpo, Map<String, String> extras) throws Exception {
-        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(baseUrl + caminho)).timeout(Duration.ofSeconds(20))
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(baseUrl() + caminho)).timeout(Duration.ofSeconds(20))
             .header("Authorization", "Bearer " + token()).header("Content-Type", "application/json");
         if (extras != null) extras.forEach(b::header);
         b.method(metodo, corpo == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(corpo)));
@@ -100,11 +108,11 @@ public class BacenPixProvider implements PixProvider {
     /** PUT /v2/cob/{txid} — cobrança imediata com expiração (calendario.expiracao, em segundos). */
     @Override
     public Criada criar(String txid, BigDecimal valor, int expiracaoSeg, String descricao) throws Exception {
-        if (chave.isBlank()) throw new IllegalStateException("Chave Pix não configurada (PIX_CHAVE)");
+        if (chave().isBlank()) throw new IllegalStateException("Chave Pix não configurada (PIX_CHAVE)");
         Map<String, Object> corpo = new LinkedHashMap<>();
         corpo.put("calendario", Map.of("expiracao", expiracaoSeg));
         corpo.put("valor", Map.of("original", valor(valor)));
-        corpo.put("chave", chave);
+        corpo.put("chave", chave());
         if (descricao != null && !descricao.isBlank()) corpo.put("solicitacaoPagador", descricao.length() > 140 ? descricao.substring(0, 140) : descricao);
         JsonNode r = chamar("PUT", "/v2/cob/" + txid, corpo, null);
         String copiaECola = r.path("pixCopiaECola").asText("");
@@ -135,6 +143,6 @@ public class BacenPixProvider implements PixProvider {
     /** PUT /v2/webhook/{chave} */
     @Override
     public void registrarWebhook(String url) throws Exception {
-        chamar("PUT", "/v2/webhook/" + enc(chave), Map.of("webhookUrl", url), skipMtlsWebhook ? Map.of("x-skip-mtls-checking", "true") : null);
+        chamar("PUT", "/v2/webhook/" + enc(chave()), Map.of("webhookUrl", url), skipMtlsWebhook ? Map.of("x-skip-mtls-checking", "true") : null);
     }
 }

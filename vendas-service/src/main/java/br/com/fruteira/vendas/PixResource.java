@@ -1,5 +1,6 @@
 package br.com.fruteira.vendas;
 
+import java.util.Optional;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
@@ -18,9 +19,12 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 public class PixResource {
     @Inject PixService pix;
     @Inject Auditor auditor;
-    @ConfigProperty(name = "pix.webhook.segredo", defaultValue = "") String segredo;
-    @ConfigProperty(name = "pix.webhook.url", defaultValue = "") String webhookUrl;
-    @ConfigProperty(name = "pix.chave", defaultValue = "") String chave;
+    @ConfigProperty(name = "pix.webhook.segredo") Optional<String> segredoCfg;   // vazio = não configurado
+    @ConfigProperty(name = "pix.webhook.url") Optional<String> webhookUrlCfg;   // vazio = não configurado
+    @ConfigProperty(name = "pix.chave") Optional<String> chaveCfg;   // vazio = não configurado
+    private String segredo() { return segredoCfg.orElse(""); }
+    private String webhookUrl() { return webhookUrlCfg.orElse(""); }
+    private String chave() { return chaveCfg.orElse(""); }
 
     public record Nova(BigDecimal valor, String descricao, String terminal) {}
     public record PixDTO(Long id, String txid, String status, BigDecimal valor, BigDecimal valorPago, String pixCopiaECola, LocalDateTime criadaEm, LocalDateTime expiraEm,
@@ -62,11 +66,11 @@ public class PixResource {
      */
     @POST @Path("/webhook")
     public Map<String, Object> webhook(@HeaderParam("X-Webhook-Token") String cabecalho, @QueryParam("token") String consulta, JsonNode corpo) {
-        if (segredo.isBlank()) {
-            if (!"simulador".equals(pix.provider().nome())) throw Http.erro(503, "Webhook sem segredo configurado (FRUTEIRA_PIX_WEBHOOK_SEGREDO)");
+        if (segredo().isBlank()) {
+            if (!"simulador".equals(pix.provider().nome())) throw Http.erro(503, "Webhook sem segredo() configurado (FRUTEIRA_PIX_WEBHOOK_SEGREDO)");
         } else {
             String recebido = cabecalho != null ? cabecalho : consulta;
-            if (recebido == null || !MessageDigest.isEqual(recebido.getBytes(StandardCharsets.UTF_8), segredo.getBytes(StandardCharsets.UTF_8)))
+            if (recebido == null || !MessageDigest.isEqual(recebido.getBytes(StandardCharsets.UTF_8), segredo().getBytes(StandardCharsets.UTF_8)))
                 throw Http.erro(401, "Webhook não autorizado");
         }
         return Map.of("ok", true, "aplicados", corpo == null ? 0 : pix.receberNotificacao(corpo));
@@ -74,14 +78,14 @@ public class PixResource {
 
     @GET @Path("/status")
     public Map<String, Object> status() {
-        return Map.of("provedor", pix.provider().nome(), "chave", chave.isBlank() ? "" : chave, "webhookConfigurado", !webhookUrl.isBlank(), "simulador", pix.simulador().isPresent());
+        return Map.of("provedor", pix.provider().nome(), "chave", chave().isBlank() ? "" : chave(), "webhookConfigurado", !webhookUrl().isBlank(), "simulador", pix.simulador().isPresent());
     }
     /** (gerente) Registra no PSP a URL do webhook definida em FRUTEIRA_PIX_WEBHOOK_URL. */
     @POST @Path("/webhook/registrar")
     public Map<String, Object> registrarWebhook() {
         if (!auditor.gerente()) throw new ForbiddenException("Somente o gerente pode registrar o webhook");
-        if (webhookUrl.isBlank()) throw Http.erro(422, "Defina FRUTEIRA_PIX_WEBHOOK_URL (https://seu-dominio/api/vendas/pix/webhook?token=SEGREDO)");
-        try { pix.provider().registrarWebhook(webhookUrl); } catch (Exception e) { throw Http.erro(502, "O PSP não registrou o webhook: " + e.getMessage()); }
+        if (webhookUrl().isBlank()) throw Http.erro(422, "Defina FRUTEIRA_PIX_WEBHOOK_URL (https://seu-dominio/api/vendas/pix/webhook?token=SEGREDO)");
+        try { pix.provider().registrarWebhook(webhookUrl()); } catch (Exception e) { throw Http.erro(502, "O PSP não registrou o webhook: " + e.getMessage()); }
         return Map.of("registrado", true);
     }
     /** Só no simulador: faz de conta que o cliente pagou (o "PSP" chama o webhook). */

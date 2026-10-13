@@ -50,6 +50,7 @@ cp -r keycloak/. "$DEST/keycloak/"; cp -r nginx/templates nginx/snippets "$DEST/
 cp database/pre_cadastro_frutas_verduras.sql "$DEST/database/"
 cp producao-modelo/* "$DEST/"
 cp ssl.sh ssl.bat "$DEST/"
+mkdir -p "$DEST/backup/saida"; for f in backup/*.mjs backup/*.sh backup/*.bat backup/LEIA-ME.txt; do cp "$f" "$DEST/backup/"; done; [ -f "$DEST/backup/backup.env" ] || cp backup/backup.env "$DEST/backup/"   # rotina de backup (nunca sobrescreve backup.env)
 chmod +x "$DEST"/*.sh
 
 echo

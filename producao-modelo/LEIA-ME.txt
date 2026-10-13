@@ -9,6 +9,6 @@ Precisa instalar no servidor: Java 21, Docker e (sem nginx) Node 18+. NÃO preci
 3) Iniciar:  ./iniciar.sh   (Windows: iniciar.bat)      Parar: ./parar.sh (parar.bat)
 4) Entre pelo Keycloak com gerente/supervisor/operador, senha temporária "trocar123" (troque no primeiro acesso).
 5) Pré-cadastro de frutas e verduras (opcional): database/pre_cadastro_frutas_verduras.sql no PostgreSQL "fruteira".
-6) Backup diário: ./backup.sh (agende no cron). Os dados ficam nos volumes Docker (pgdata, kcdata).
+6) Backup: pasta backup/ (backup.bat / ./backup.sh; agendar.bat / ./agendar.sh; pendrive e Google Drive em backup/backup.env — leia backup/LEIA-ME.txt). Os dados ficam nos volumes Docker (pgdata, kcdata).
 
 Conteúdo: servicos/ (jars Quarkus) · web/ (front) · servidor-web.mjs · docker-compose.prod.yml · keycloak/ · nginx/ · database/ · .env · logs/ · backups/

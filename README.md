@@ -79,7 +79,7 @@ Internet ──443──> nginx ──┬─ https://FRONT_DOMAIN      -> pdv-we
 **Endurecimento recomendado:**
 - Bloqueie no firewall as portas 8081–8084 e 5432 (os serviços escutam em todas as interfaces; só o nginx deve acessá-los).
 - Restrinja `/admin/` do Keycloak a IPs conhecidos (bloco comentado em `nginx/templates/default.conf.template`).
-- Troque as senhas temporárias `trocar123` e as do `.env`; faça backup dos volumes `pgdata` e `kcdata`.
+- Troque as senhas temporárias `trocar123` e as do `.env`; faça backup com `backup/` (ver seção Backup).
 
 **Limitações conhecidas:** `/estoque/baixa` é liberada ao operador (necessária para vendas), então a mesma rota serve a perdas lançadas por quem tiver acesso; o login offline com cache local só existe em desenvolvimento.
 
@@ -292,6 +292,16 @@ Catálogo em `pdv-web/src/cartoes.js` e `vendas-service/.../Cartoes.java` (mante
 - Regime tributário montado: **Simples Nacional** (CRT 1, ICMSSN102, PIS/COFINS CST 07). Frutas/verduras podem ter tratamento próprio (isenção, CSOSN 400…): confirme **CFOP/CSOSN** com o contador. Regime normal (CRT 3) não está montado.
 - Certificado **A3** (token/cartão) não é lido: use A1 ou um emissor via API. O CSC e o `cIdToken` seguem como configurados (confira zeros à esquerda). Prazo máximo para transmitir a contingência: veja a regra vigente da SEFAZ-RS.
 - Vendas gravadas offline no navegador (fila) ainda não geram NFC-e ao sincronizar: emita em NFC-e › Vendas sem nota.
+
+## Backup (pendrive ou Google Drive)
+
+Pasta **`backup/`** (só precisa do Node.js): `backup.bat` / `./backup.sh` gera `backup/saida/fruteira-AAAAMMDD-HHMMSS-<dev|prod>.tar.gz[.enc]` com o banco (dump do PostgreSQL e do Keycloak em produção; pastas `data/` do H2 em desenvolvimento), `.env`, certificado digital A1, realm e certificados TLS, mais um `.sha256` de integridade.
+
+- **Destinos extras** em `backup/backup.env` → `BACKUP_DESTINOS` (pendrive `E:\fruteira`, pasta do app *Drive para computador* `G:\Meu Drive\Fruteira`) ou `RCLONE_DESTINO` (Google Drive via rclone). Pendrive ausente: o backup local fica e o script avisa (código de saída 2).
+- **Senha** (`BACKUP_SENHA`, AES-256-GCM): recomendada, pois o backup tem senhas, o certificado e CPFs de clientes. Sem a senha não há como abrir.
+- **Agendar:** `agendar.bat` (Windows, 02:00 todo dia) ou `./agendar.sh` (cron). Retenção de 30 dias (`BACKUP_RETENCAO_DIAS`), na pasta local e nos destinos.
+- **Restaurar:** `restaurar.bat|.sh <arquivo> --senha ...` (confere o hash, exige digitar SIM; `.env`/certificado/realm saem em `backup/restaurado-<data>/` sem sobrescrever nada).
+- Testado com Docker simulado e um pendrive em pasta (backup, criptografia, senha errada, arquivo corrompido, retenção, restauração dev e prod); **não testado** com PostgreSQL real nem no Windows (`.bat`, `schtasks`). Detalhes em `backup/LEIA-ME.txt`.
 
 ## Pendências para produção
 

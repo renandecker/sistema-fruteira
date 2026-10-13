@@ -1,5 +1,6 @@
 package br.com.fruteira.vendas;
 
+import java.util.Optional;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -32,7 +33,8 @@ public class SimuladorPixProvider implements PixProvider {
     @ConfigProperty(name = "pix.nome", defaultValue = "FRUTEIRA CONVENTOS") String nome;
     @ConfigProperty(name = "pix.cidade", defaultValue = "CIDADE") String cidade;
     @ConfigProperty(name = "pix.simulador.pagar-em-seg", defaultValue = "6") int pagarEm;
-    @ConfigProperty(name = "pix.webhook.segredo", defaultValue = "") String segredo;
+    @ConfigProperty(name = "pix.webhook.segredo") Optional<String> segredoCfg;   // vazio = não configurado
+    private String segredo() { return segredoCfg.orElse(""); }
     @ConfigProperty(name = "quarkus.http.port", defaultValue = "8083") int porta;
 
     private static final class Cob { BigDecimal valor; volatile String status = "ATIVA"; volatile String e2e; volatile LocalDateTime horario; }
@@ -72,7 +74,7 @@ public class SimuladorPixProvider implements PixProvider {
     }
     private void enviarWebhook(String json) {
         try {
-            String url = "http://127.0.0.1:" + porta + "/pix/webhook" + (segredo.isBlank() ? "" : "?token=" + URLEncoder.encode(segredo, StandardCharsets.UTF_8));
+            String url = "http://127.0.0.1:" + porta + "/pix/webhook" + (segredo().isBlank() ? "" : "?token=" + URLEncoder.encode(segredo(), StandardCharsets.UTF_8));
             HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(10))
                 .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(json)).build(), HttpResponse.BodyHandlers.ofString());
             if (r.statusCode() / 100 != 2) LOG.warnf("[simulador] webhook respondeu HTTP %d: %s", r.statusCode(), r.body());

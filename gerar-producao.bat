@@ -47,6 +47,9 @@ if not exist "%DEST%\database" mkdir "%DEST%\database"
 copy /y database\pre_cadastro_frutas_verduras.sql "%DEST%\database\" >nul
 copy /y producao-modelo\* "%DEST%\" >nul
 copy /y ssl.sh "%DEST%\" >nul & copy /y ssl.bat "%DEST%\" >nul
+if not exist "%DEST%\backup\saida" mkdir "%DEST%\backup\saida"
+for %%F in (backup\*.mjs backup\*.sh backup\*.bat backup\LEIA-ME.txt) do copy /y "%%F" "%DEST%\backup\" >nul
+if not exist "%DEST%\backup\backup.env" copy backup\backup.env "%DEST%\backup\" >nul
 
 echo.
 echo Pasta pronta: %CD%\%DEST%
