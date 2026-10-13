@@ -2,7 +2,7 @@ FRUTEIRA — PASTA DE PRODUÇÃO (gerada por gerar-producao.sh/.bat)
 ================================================================
 Precisa instalar no servidor: Java 21, Docker e (sem nginx) Node 18+. NÃO precisa de Maven nem de compilar nada.
 
-1) Abra o arquivo .env e confira (as senhas já foram geradas aleatoriamente — guarde-as):
+1) Abra o arquivo .env e confira (as senhas são geradas aleatoriamente — guarde-as). Se o .env não existir ou algum valor estiver vazio/de exemplo ("troque-..."), o iniciar cria o arquivo a partir da raiz do projeto e gera as senhas sozinho; arquivos que faltarem nesta pasta (compose, keycloak, nginx...) também são copiados da raiz. './iniciar.sh --preparar' faz só essa preparação:
    - KEYCLOAK_URL e FRONT_URL (com HTTPS/domínio reais, se for usar nginx); TEF_PROVIDER, PIX_PROVIDER...
    - Mudou KEYCLOAK_URL/FRONT_URL/domínios? Rode gerar-producao de novo na pasta do projeto (o front embute a URL do Keycloak).
 2) HTTPS (opcional): USE_NGINX=true no .env, DNS dos dois domínios apontando para o servidor e  ./ssl.sh letsencrypt

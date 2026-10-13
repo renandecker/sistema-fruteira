@@ -10,16 +10,16 @@ import { pixAtivo, pixPendencias } from './pix.js'
 import { SangriaModal } from './Caixa.jsx'
 import { cartoesDoMeio, meioDeBeneficio, nomeCartao } from './cartoes.js'
 import { tefAtivo, desfazerTef, confirmarTef, imprimirComprovantes, reconciliar, cartoesNfce } from './tef.js'
+import { mascaraCpf, statusCpf, somenteDigitos } from './cpf.js'
+import { montarEmissao, emitirNfce, corrigirCpfNfce } from './nfce.js'
+import { NfceAviso } from './Danfe.jsx'
 import { decodificarEtiqueta } from './etiqueta.js'
 
 const brl = n => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const dataCurta = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : ''
 const api = (p, o) => fetch(p, { headers: { 'Content-Type': 'application/json' }, ...o }).then(r => r.ok ? r.json() : r.text().then(t => Promise.reject(t)))
-const posVenda = (v, cpf) => { // NFC-e (contingência se offline) e cashback do cliente
-  const ign = () => {}
-  fetch('/api/retaguarda/nfce/emitir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ vendaId: v.id, valor: v.total, cpf, contingencia: !navigator.onLine, cartoes: cartoesNfce(v.pagamentos) }) }).catch(ign)
-  if (cpf) fetch(`/api/retaguarda/clientes/cpf/${cpf}/compra?valor=${v.total}`, { method: 'POST' }).catch(ign)
-}
+/** Cashback do cliente (fidelidade). A NFC-e é emitida em emitirNota(), que mostra o retorno da SEFAZ no caixa. */
+const posVenda = (v, cpf) => { if (cpf) fetch(`/api/retaguarda/clientes/cpf/${somenteDigitos(cpf)}/compra?valor=${v.total}`, { method: 'POST' }).catch(() => {}) }
 const enviarVenda = v => api('/api/vendas/vendas', { method: 'POST', body: JSON.stringify(v) })
 let seq = 0
 
@@ -27,6 +27,8 @@ export default function PDV() {
   const [produtos, setProdutos] = useState([]); const [categorias, setCategorias] = useState([]); const [atalho, setAtalho] = useState(null)   // atalho: { tipo: 'plu' | 'mult', texto }
   const [itens, setItens] = useState([]); const [codigo, setCodigo] = useState(''); const [cpf, setCpf] = useState(''); const [pagando, setPagando] = useState(false)
   const [caixa, setCaixa] = useState(null); const [sangria, setSangria] = useState(false)
+  const [nfceAviso, setNfceAviso] = useState(null)   // { nota, venda } — retorno da NFC-e logo após a venda
+  const stCpf = statusCpf(cpf)
   const [msg, setMsg] = useState(''); const [aba, setAba] = useState(0); const [flash, setFlash] = useState(null); const [avisoPeso, setAvisoPeso] = useState(false)
   const balanca = useBalanca(); const fim = useRef(null); const campo = useRef(null); const bipCtx = useRef(null)
 
@@ -196,7 +198,7 @@ export default function PDV() {
       if (e.key === 'Tab' && !e.altKey && !e.ctrlKey && !e.metaKey) {   // "Alt+Tab" do caixa: o SO reserva Alt+Tab, então usamos Tab
         e.preventDefault(); setAba(a => (Math.min(a, abas.length - 1) + (e.shiftKey ? -1 : 1) + abas.length) % abas.length); return
       }
-      if (e.key === 'F2' && itens.length) { e.preventDefault(); setPagando(true); return }
+      if (e.key === 'F2' && itens.length) { e.preventDefault(); pagar(); return }
       if (!emCampo) {                                                   // digitou fora de qualquer campo: leva ao campo de código/PLU
         if (/^\d$/.test(e.key)) campo.current?.focus()
         else if (e.key === 'Enter' && codigo) lerCodigo(codigo)
@@ -213,12 +215,28 @@ export default function PDV() {
       if (!r.ok) setMsg('Venda concluída, mas a confirmação do cartão ficou pendente (será reconciliada).')
     }
   }
+  /** NFC-e da venda (CPF opcional = Nota Fiscal Gaúcha). Nunca trava o caixa: a venda já foi gravada; o retorno aparece num aviso. */
+  const emitirNota = async (v, cpfVenda) => {
+    try {
+      const nota = await emitirNfce(montarEmissao(v, produtos, cpfVenda, '', cartoesNfce(v.pagamentos)))
+      if (nota.status === 'AUTORIZADA' && !nota.cpf) setMsg(`Venda concluída ✔ · NFC-e nº ${nota.numero} autorizada`)    // sem CPF: não interrompe o caixa
+      else setNfceAviso({ nota, venda: v })
+    } catch (e) { setMsg('Venda concluída, mas a NFC-e não foi emitida: ' + String(e) + ' — emita em NFC-e › Vendas sem nota.') }
+  }
+  const corrigirCpf = async (cpfNovo) => {
+    const nota = await corrigirCpfNfce(nfceAviso.nota.id, cpfNovo)
+    setNfceAviso(a => ({ ...a, nota }))
+  }
+  const pagar = () => {   // CPF digitado precisa estar completo e válido (dígitos verificadores); vazio = venda sem CPF
+    if (stCpf === 'incompleto' || stCpf === 'invalido') { setMsg('CPF inválido: corrija ou apague o campo para vender sem CPF.'); return }
+    setPagando(true)
+  }
   async function finalizar(pagamentos) {
     const cartoes = pagamentos.filter(p => p.tefId)
-    const venda = { cpf, atacado: false, pagamentos: pagamentos.map(({ meio, valor, tefId, pixId, operadora }) => ({ meio, valor, ...(operadora ? { operadora } : {}), ...(tefId ? { tefId } : {}), ...(pixId ? { pixId } : {}) })),
+    const venda = { cpf: somenteDigitos(cpf) || null, atacado: false, pagamentos: pagamentos.map(({ meio, valor, tefId, pixId, operadora }) => ({ meio, valor, ...(operadora ? { operadora } : {}), ...(tefId ? { tefId } : {}), ...(pixId ? { pixId } : {}) })),
       itens: itens.map(i => ({ produtoId: i.produtoId, quantidade: i.quantidade, pesoBalanca: i.pesoBalanca })) }
     try {
-      const v = await enviarVenda(venda); setMsg('Venda concluída ✔'); posVenda(v, venda.cpf); carregar(); carregarCaixa()    // recarrega ranking e promoções
+      const v = await enviarVenda(venda); setMsg('Venda concluída ✔'); posVenda(v, venda.cpf); emitirNota(v, venda.cpf); carregar(); carregarCaixa()    // recarrega ranking e promoções
       if (cartoes.length) setTimeout(() => concluirTef(cartoes), 0)
     } catch (e) {
       if (e instanceof TypeError) { enfileirar(venda); setMsg('Sem rede: venda salva offline' + (cartoes.length ? ' (os cartões serão confirmados na reconciliação)' : '')) }
@@ -275,9 +293,12 @@ export default function PDV() {
       </section>
       <aside className="side">
         <div className="campo-x">
-          <input placeholder="CPF na nota (fidelidade)" value={cpf} onChange={e => setCpf(e.target.value)} />
+          <input placeholder="CPF na nota (opcional)" aria-label="CPF na nota" inputMode="numeric" value={cpf} onChange={e => setCpf(mascaraCpf(e.target.value))}
+            className={stCpf === 'invalido' ? 'cpf-invalido' : stCpf === 'ok' ? 'cpf-ok' : ''} title="Nota Fiscal Gaúcha: informe o CPF do consumidor (opcional)" />
           {itens.length > 0 && <button className="x-limpar" title="Limpar todos os itens da venda" onClick={limparTudo}>✕</button>}
         </div>
+        {stCpf === 'invalido' && <small className="erro" role="alert">CPF inválido — confira os números</small>}
+        {stCpf === 'incompleto' && <small className="eco">CPF incompleto</small>}
         <ul>
           {itens.map((i, k) => <li key={i.uid} className={`${k === itens.length - 1 ? 'ultimo' : ''} ${i.promo ? 'item-promo' : ''}`}>
             <span>{i.nome} {i.promo && <span className="promo-tag">PROMO</span>}<br />
@@ -288,10 +309,11 @@ export default function PDV() {
         </ul>
         {descontoTotal > 0 && <div className="resumo"><div>Sem promoções: <s>{brl(total + descontoTotal)}</s></div><div className="eco">Desconto das promoções: −{brl(descontoTotal)}</div></div>}
         <div className="total">{brl(total)}</div>
-        <button className="btn pagar" disabled={!itens.length} onClick={() => setPagando(true)}>Pagar (F2)</button>
+        <button className="btn pagar" disabled={!itens.length} onClick={pagar}>Pagar (F2)</button>
       </aside>
       {sangria && <SangriaModal onFechar={() => { setSangria(false); focarCampo() }} onFeita={() => { setSangria(false); setMsg('Sangria registrada ✔'); carregarCaixa(); focarCampo() }} />}
       {pagando && <Pagamento total={total} desconto={descontoTotal} onOk={finalizar} problemasNcm={problemasNcm} produtoIds={[...new Set(itens.map(i => i.produtoId))]} onCancel={() => { setPagando(false); focarCampo() }} />}
+      {nfceAviso && <NfceAviso nota={nfceAviso.nota} itens={nfceAviso.venda.itens} pagamentos={nfceAviso.venda.pagamentos} produtos={produtos} onCorrigir={corrigirCpf} onFechar={() => { setNfceAviso(null); focarCampo() }} />}
     </div>)
 }
 

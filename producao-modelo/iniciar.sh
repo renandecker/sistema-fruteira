@@ -5,7 +5,54 @@
 set -u
 cd "$(dirname "$0")"
 mkdir -p logs; PIDS=()
-[ -f .env ] || { echo "❌ .env não encontrado"; exit 1; }
+# ---------- 1) arquivos necessários: se faltar nesta pasta, procura na raiz do projeto (pasta acima) ----------
+RAIZ="$(cd .. 2>/dev/null && pwd)"
+copiar_da_raiz() {   # $1 = caminho relativo; $2.. = outros lugares onde procurar (relativos à raiz)
+  local rel="$1"; shift; [ -e "$rel" ] && return 0
+  for cand in "$rel" "$@"; do
+    if [ -e "$RAIZ/$cand" ]; then mkdir -p "$(dirname "$rel")"; cp -r "$RAIZ/$cand" "$rel"; echo "ℹ $rel não estava aqui: copiado de $RAIZ/$cand"; return 0; fi
+  done
+  return 1
+}
+faltou=0
+copiar_da_raiz docker-compose.prod.yml || { echo "❌ docker-compose.prod.yml não encontrado aqui nem em $RAIZ"; faltou=1; }
+[ -f docker-compose.prod.yml ] && sed -i.bak 's#\./pdv-web/dist#./web#' docker-compose.prod.yml && rm -f docker-compose.prod.yml.bak   # a pasta de produção serve o front de ./web
+copiar_da_raiz keycloak || { echo "❌ pasta keycloak (realm) não encontrada aqui nem em $RAIZ"; faltou=1; }
+copiar_da_raiz nginx/templates || echo "ℹ nginx/templates ausente (só é necessário com USE_NGINX=true)"
+copiar_da_raiz nginx/snippets || echo "ℹ nginx/snippets ausente (só é necessário com USE_NGINX=true)"
+copiar_da_raiz database || true
+copiar_da_raiz servidor-web.mjs servidor-web.mjs producao-modelo/servidor-web.mjs || echo "ℹ servidor-web.mjs ausente (só é necessário sem nginx)"
+if [ ! -d web ]; then copiar_da_raiz web pdv-web/dist || echo "ℹ front compilado (web/) ausente: rode gerar-producao na raiz do projeto"; fi
+if [ ! -d servicos ]; then echo "ℹ servicos/ (jars) ausente: rode gerar-producao na raiz do projeto"; fi
+mkdir -p nginx/certs logs backups
+if [ ! -f .env ]; then
+  if   [ -f "$RAIZ/.env" ];         then fonte="$RAIZ/.env"
+  elif [ -f "$RAIZ/.env.example" ]; then fonte="$RAIZ/.env.example"
+  else echo "❌ .env não encontrado aqui nem em $RAIZ"; exit 1; fi
+  cp "$fonte" .env; echo "ℹ .env criado a partir de $fonte"
+  sed -i.bak 's/^APP_ENV=.*/APP_ENV=producao/' .env && rm -f .env.bak
+fi
+[ "$faltou" = 1 ] && exit 1
+
+# ---------- 2) senhas: valor vazio ou de exemplo ("troque-...") vira uma senha aleatória gravada no .env ----------
+gerar_senha() { LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "${1:-24}"; }
+valor_env() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- | tr -d '\r'; }
+definir_env() {   # $1=chave $2=valor: troca a linha ativa, ou a comentada, ou acrescenta
+  local chave="$1" valor="$2"
+  if grep -qE "^$chave=" .env; then awk -v k="$chave" -v v="$valor" 'BEGIN{FS=OFS="="} $1==k{print k"="v; next} {print}' .env > .env.tmp
+  elif grep -qE "^#$chave=" .env; then awk -v k="$chave" -v v="$valor" 'BEGIN{FS="="} $1=="#"k && !feito{print k"="v; feito=1; next} {print}' .env > .env.tmp
+  else { cat .env; printf '\n%s=%s\n' "$chave" "$valor"; } > .env.tmp; fi
+  mv .env.tmp .env
+}
+for v in DB_PASS KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_DB_PASS TEF_TOKEN; do
+  atual="$(valor_env $v)"
+  case "$atual" in ""|troque*)
+    tam=24; [ "$v" = TEF_TOKEN ] && tam=40
+    definir_env "$v" "$(gerar_senha $tam)"; echo "🔑 $v estava vazio/de exemplo: gerada uma senha aleatória e gravada no .env (guarde o arquivo!)";;
+  esac
+done
+chmod 600 .env 2>/dev/null || true
+[ "${1:-}" = "--preparar" ] && { echo "✔ Preparação concluída (--preparar): nada foi iniciado."; exit 0; }
 set -a; . <(tr -d '\r' < .env); set +a
 USE_NGINX=${USE_NGINX:-false}
 need=(java docker); [ "$USE_NGINX" = true ] || need+=(node)

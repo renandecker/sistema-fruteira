@@ -5,6 +5,9 @@ import { useBalanca } from './balanca.js'
 import { PROD, KC } from './auth.js'
 import { abrirBalanca } from './balanca.js'
 import { agente, cartoesTexto } from './tef.js'
+import { montarEmissao, emitirNfce, corrigirCpfNfce, situacaoNota } from './nfce.js'
+import { mascaraCpf, statusCpf } from './cpf.js'
+import { Danfe } from './Danfe.jsx'
 import { codificarEtiqueta, formatoEtiqueta } from './etiqueta.js'
 import { ImagemProduto, SeletorImagem, IconeFruta, CATALOGO, sugerirImagem } from './catalogoImagens.jsx'
 
@@ -230,21 +233,37 @@ export function Dre() {
 }
 
 export function Nfce() {
-  const [notas, cn] = useLista(R + '/nfce'); const [vendas] = useLista('/api/vendas/vendas?limit=30'); const [msg, setMsg] = useState('')
+  const [notas, cn] = useLista(R + '/nfce'); const [vendas] = useLista('/api/vendas/vendas?limit=30'); const [produtos] = useProdutos(); const [msg, setMsg] = useState('')
+  const [st, setSt] = useState(null); const [reimp, setReimp] = useState(null); const [corrigindo, setCorrigindo] = useState(null); const [cpfNovo, setCpfNovo] = useState('')
+  useEffect(() => { api(R + '/nfce/status').then(setSt).catch(() => {}) }, [])
   const emitidas = new Set(notas.map(n => n.vendaId)); const act = (p, o) => post(p, o).then(cn).catch(e => setMsg(String(e)))
-  const cor = { AUTORIZADA: 'var(--verde)', CONTINGENCIA: '#e0a100', CANCELADA: 'var(--vermelho)' }
-  return <Pagina titulo="🧮 NFC-e / SAT"><Aviso m={msg} />
-    <div className="msg" style={{ margin: '0 0 12px' }}>⚠ Ambiente <b>simulado</b>: gera chave de 44 dígitos e protocolo fictício. Para valer fiscalmente, integre o emissor (SEFAZ/Focus NFe) em <code>NfceResource</code>.</div>
+  const cor = { AUTORIZADA: 'var(--verde)', CONTINGENCIA: '#e0a100', CANCELADA: 'var(--vermelho)', REJEITADA: 'var(--vermelho)', DENEGADA: 'var(--vermelho)' }
+  const emitir = async v => { try { const venda = await api(`/api/vendas/vendas/${v.id}`); await emitirNfce(montarEmissao(venda, produtos, v.cpf || '', '', null)); cn() } catch (e) { setMsg(String(e)) } }
+  const corrigir = async () => { try { await corrigirCpfNfce(corrigindo.id, cpfNovo); setCorrigindo(null); cn() } catch (e) { setMsg(String(e)) } }
+  const cancelar = n => { const j = window.prompt('Justificativa do cancelamento (mínimo 15 caracteres):'); if (j) act(`${R}/nfce/${n.id}/cancelar`, { justificativa: j }) }
+  const imprimir = async n => { try { const venda = await api(`/api/vendas/vendas/${n.vendaId}`); setReimp({ nota: n, venda }); setTimeout(() => window.print(), 80) } catch (e) { setMsg(String(e)) } }
+  return <Pagina titulo="🧮 NFC-e / Nota Fiscal Gaúcha"><Aviso m={msg} />
+    {st && !st.real && <div className="msg" style={{ margin: '0 0 12px' }}>⚠ Emissão <b>simulada</b> (FISCAL_PROVIDER=simulador): chave e protocolo fictícios, sem valor fiscal. Para emitir de verdade configure FISCAL_PROVIDER=sefaz, o certificado A1 e o CSC no .env (ver README).</div>}
+    {st?.real && <div className="msg" style={{ margin: '0 0 12px' }}>SEFAZ-RS · ambiente <b>{st.ambiente}</b>{st.pendencias?.length > 0 && <> · ⚠ faltam: {st.pendencias.join(', ')}</>}</div>}
     <h3>Vendas sem nota</h3>
-    <table className="tab"><thead><tr><th>Venda</th><th>Data</th><th>Total</th><th></th></tr></thead>
-      <tbody>{vendas.filter(v => v.status === 'PAGA' && !emitidas.has(v.id)).map(v => <tr key={v.id}><td>#{v.id}</td><td>{new Date(v.data).toLocaleString('pt-BR')}</td><td>{brl(v.total)}</td>
-        <td><button className="btn" onClick={() => act(R + '/nfce/emitir', { vendaId: v.id, valor: v.total, cpf: v.cpf, contingencia: false })}>Emitir NFC-e</button></td></tr>)}</tbody></table>
+    <table className="tab"><thead><tr><th>Venda</th><th>Data</th><th>Total</th><th>CPF</th><th></th></tr></thead>
+      <tbody>{vendas.filter(v => v.status === 'PAGA' && !emitidas.has(v.id)).map(v => <tr key={v.id}><td>#{v.id}</td><td>{new Date(v.data).toLocaleString('pt-BR')}</td><td>{brl(v.total)}</td><td>{v.cpf ? mascaraCpf(v.cpf) : '—'}</td>
+        <td><button className="btn" onClick={() => emitir(v)}>Emitir NFC-e</button></td></tr>)}</tbody></table>
     <h3>Notas</h3>
-    <table className="tab"><thead><tr><th>Nº</th><th>Venda</th><th>Chave</th><th>Valor</th><th>Cartão (TEF)</th><th>Status</th><th></th></tr></thead>
-      <tbody>{notas.map(n => <tr key={n.id}><td>{n.numero}</td><td>#{n.vendaId}</td><td style={{ fontSize: 11 }}>{n.chave}</td><td>{brl(n.valor)}</td><td style={{ fontSize: 12 }}>{cartoesTexto(n.cartoes)}</td>
-        <td><span className="classe" style={{ background: cor[n.status] }}>{n.status}</span></td>
-        <td>{n.status === 'CONTINGENCIA' && <button className="btn sec" onClick={() => act(`${R}/nfce/${n.id}/transmitir`)}>Transmitir</button>}
-          {n.status === 'AUTORIZADA' && <button className="btn sec" onClick={() => act(`${R}/nfce/${n.id}/cancelar`)}>Cancelar</button>}</td></tr>)}</tbody></table></Pagina>
+    <table className="tab"><thead><tr><th>Nº</th><th>Venda</th><th>Chave</th><th>Valor</th><th>CPF (NFG)</th><th>Cartão (TEF)</th><th>Status / retorno SEFAZ</th><th></th></tr></thead>
+      <tbody>{notas.map(n => <tr key={n.id}><td>{n.numero}</td><td>#{n.vendaId}</td><td style={{ fontSize: 11 }}>{n.chave}</td><td>{brl(n.valor)}</td><td>{n.cpf ? mascaraCpf(n.cpf) : '—'}</td><td style={{ fontSize: 12 }}>{cartoesTexto(n.cartoes)}</td>
+        <td><span className="classe" style={{ background: cor[n.status] }}>{n.status}</span>{n.cStat ? <small style={{ display: 'block' }}>{n.cStat} - {n.xMotivo}</small> : null}</td>
+        <td>{n.status === 'REJEITADA' && situacaoNota(n) === 'corrigir-cpf' && <button className="btn" onClick={() => { setCorrigindo(n); setCpfNovo(mascaraCpf(n.cpf || '')) }}>Corrigir CPF</button>}
+          {n.status === 'CONTINGENCIA' && <button className="btn sec" onClick={() => act(`${R}/nfce/${n.id}/transmitir`)}>Transmitir</button>}
+          {(n.status === 'AUTORIZADA' || n.status === 'CONTINGENCIA') && <button className="btn sec" onClick={() => imprimir(n)}>DANFE</button>}
+          {n.status === 'AUTORIZADA' && <button className="btn sec" onClick={() => cancelar(n)}>Cancelar</button>}
+          {st?.real && <a className="btn sec" href={`${R}/nfce/${n.id}/xml`}>XML</a>}</td></tr>)}</tbody></table>
+    {corrigindo && <div className="modal" role="dialog" aria-label="Corrigir CPF"><div className="nfce-box"><h2>Corrigir CPF — NFC-e nº {corrigindo.numero}</h2>
+      <p>{corrigindo.cStat} — {corrigindo.xMotivo}</p>
+      <input autoFocus aria-label="CPF corrigido" inputMode="numeric" placeholder="000.000.000-00 (vazio = sem CPF)" value={cpfNovo} onChange={e => setCpfNovo(mascaraCpf(e.target.value))} className={statusCpf(cpfNovo) === 'invalido' ? 'cpf-invalido' : ''} />
+      <div className="botoes"><button className="btn" disabled={['incompleto', 'invalido'].includes(statusCpf(cpfNovo))} onClick={corrigir}>{cpfNovo ? 'Reenviar com este CPF' : 'Emitir sem CPF'}</button>
+        <button className="btn sec" onClick={() => setCorrigindo(null)}>Fechar</button></div></div></div>}
+    {reimp && <Danfe nota={reimp.nota} itens={reimp.venda.itens} pagamentos={reimp.venda.pagamentos} produtos={produtos} />}</Pagina>
 }
 
 /* ---------- Relatórios / Marketing ---------- */

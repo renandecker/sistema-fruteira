@@ -34,7 +34,9 @@ public class VendaResource {
 
     @POST @Transactional
     public Venda finalizar(VendaReq req) {
-        Venda v = new Venda(); v.usuario = auditor.usuario(); v.cpfCliente = req.cpf(); List<String> problemasNcm = new ArrayList<>();
+        Venda v = new Venda(); v.usuario = auditor.usuario();
+        // CPF opcional (venda anônima): se informado, os dígitos verificadores precisam conferir ANTES de qualquer baixa de estoque ou pagamento
+        try { v.cpfCliente = Cpf.normalizarOuNulo(req.cpf()); } catch (IllegalArgumentException ex) { throw Http.erro(422, "CPF inválido"); } List<String> problemasNcm = new ArrayList<>();
         for (ItemReq ir : req.itens()) {
             ProdutoDTO p = catalogo.buscar(ir.produtoId());
             if (Boolean.FALSE.equals(p.ativo())) throw new WebApplicationException("Produto desativado: " + p.nome(), 422);
@@ -100,6 +102,14 @@ public class VendaResource {
         return v;
     }
     public record VendaResumo(Long id, LocalDateTime data, BigDecimal total, String status, String cpf) {}
+    /** Valida o CPF do consumidor (Nota Fiscal Gaúcha): dígitos verificadores, sem repetidos. */
+    @GET @Path("/cpf/{cpf}/validar")
+    public Map<String, Object> validarCpf(@PathParam("cpf") String cpf) {
+        boolean ok = Cpf.valido(cpf); return Map.of("valido", ok, "cpf", Cpf.somenteDigitos(cpf), "formatado", ok ? Cpf.formatar(cpf) : "");
+    }
+    @GET @Path("/{id}") @Transactional
+    public Venda buscar(@PathParam("id") Long id) { Venda v = Venda.findById(id); if (v == null) throw new NotFoundException(); return v; }
+
     @GET public List<VendaResumo> recentes(@QueryParam("limit") @DefaultValue("30") int limit) {
         List<Venda> l = Venda.find("order by id desc").page(0, limit).list();
         return l.stream().map(v -> new VendaResumo(v.id, v.data, v.total, v.status.name(), v.cpfCliente)).toList();

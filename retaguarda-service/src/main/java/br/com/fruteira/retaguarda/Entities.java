@@ -30,6 +30,14 @@ public class Entities {
         public Long vendaId; public Integer numero; public String chave; public String protocolo;
         public String status; public String cpf; public BigDecimal valor; public LocalDateTime data = LocalDateTime.now();
         @Column(length = 2000) public String cartoes;   // JSON: pagamentos em cartão (tPag, CNPJ credenciadora, bandeira, autorização, NSU)
+        // --- emissão real (SEFAZ-RS) ---
+        public String nome;                              // nome do consumidor (opcional; vai em <dest><xNome>)
+        public Integer cStat, tpEmis; @Column(length = 500) public String xMotivo; public String cNF, dhAutorizacao;
+        public String provider;                          // SIMULADOR | SEFAZ
+        public Boolean erroCpf;                          // rejeição por CPF/destinatário: o caixa pode corrigir ou emitir sem CPF
+        @Column(length = 600) public String qrCode; public String urlChave;
+        @JsonIgnore @Column(length = 200000) public String xml;          // XML assinado (ou nfeProc, quando autorizada)
+        @JsonIgnore @Column(length = 20000) public String payload;       // itens/pagamentos da venda (para reenviar após corrigir o CPF)
     }
     @Entity public static class Auditoria extends PanacheEntity {
         public LocalDateTime data = LocalDateTime.now();

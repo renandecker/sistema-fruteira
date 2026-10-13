@@ -47,6 +47,13 @@ if [ "$APP_ENV" = producao ]; then
   fi
   [ "${TEF_PROVIDER:-simulador}" = simulador ] && echo "ℹ TEF em modo SIMULADOR (TEF_PROVIDER=simulador): não cobra cartão de verdade."
   [ -z "${TEF_TOKEN:-}" ] && echo "⚠ TEF_TOKEN vazio: defina um token no .env e em Configurações do caixa (qualquer página aberta no navegador pode chamar o agente local)."
+  [ "${FISCAL_PROVIDER:-simulador}" = simulador ] && echo "ℹ NFC-e em modo SIMULADOR (FISCAL_PROVIDER=simulador): sem valor fiscal. Para a Nota Fiscal Gaúcha real: FISCAL_PROVIDER=sefaz (ver README)."
+  if [ "${FISCAL_PROVIDER:-simulador}" = sefaz ]; then
+    falta=""; for v in FISCAL_CNPJ FISCAL_RAZAO FISCAL_IE FISCAL_CMUN FISCAL_CSC_ID FISCAL_CSC FISCAL_CERT_PATH; do [ -z "${!v:-}" ] && falta="$falta $v"; done
+    [ -n "$falta" ] && { echo "❌ FISCAL_PROVIDER=sefaz exige no .env:$falta"; exit 1; }
+    [ -r "$FISCAL_CERT_PATH" ] || { echo "❌ Certificado A1 não encontrado/legível: $FISCAL_CERT_PATH"; exit 1; }
+    [ "${FISCAL_AMBIENTE:-2}" = 1 ] && echo "⚠ NFC-e em PRODUÇÃO (FISCAL_AMBIENTE=1): as notas têm valor fiscal." || echo "ℹ NFC-e em HOMOLOGAÇÃO (FISCAL_AMBIENTE=2): sem valor fiscal."
+  fi
   [ "${PIX_PROVIDER:-simulador}" = simulador ] && echo "ℹ Pix em modo SIMULADOR (PIX_PROVIDER=simulador): não é Pix real."
   [ "${PIX_PROVIDER:-simulador}" = psp ] && [ -z "${FRUTEIRA_PIX_WEBHOOK_SEGREDO:-}" ] && { echo "❌ Pix com PSP exige FRUTEIRA_PIX_WEBHOOK_SEGREDO no .env (o webhook é público)"; exit 1; }
   echo "Gerando o front (dist)..."

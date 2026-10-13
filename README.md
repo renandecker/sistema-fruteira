@@ -119,7 +119,7 @@ O navegador não acessa o pinpad. O desenho segue o roteiro do `tef.txt`:
 - **Agente TEF** (`tef-agent`, porta 8090, escuta só em 127.0.0.1): roda no computador do caixa. Provedores pluggáveis (`TefProvider`): **simulador** (pronto) e **clisitef** (ponto de extensão *não implementado*: exige a DLL licenciada, contrato e homologação).
 - **Fluxo:** (1) o servidor cria a transação `PENDENTE` com a requisição única; (2) o caixa aciona o agente e mostra as mensagens do pinpad em tempo real (Insira o cartão → Digite a senha → Processando); (3) o resultado (NSU, autorização, bandeira, adquirente, CNPJ da credenciadora, comprovantes) é gravado no servidor; (4) a venda é gravada **vinculando** o `tefId` (o servidor confere valor e status); (5) imprime as vias do cliente e da loja e **confirma** no agente e no servidor. Se a venda for recusada, o cartão é **desfeito**.
 - **Pendências / queda:** ao abrir o caixa (e ao voltar a rede) o PDV **reconcilia**: transação aprovada com venda → confirma; sem venda → desfaz; sem retorno → marca erro. A tela **Financeiro e Fiscal → Transações TEF** mostra o estado do agente e do pinpad, as pendências, reimprime comprovantes e faz o **estorno** (supervisor/gerente). Venda paga com cartão TEF só pode ser cancelada depois do estorno.
-- **NFC-e:** os dados do cartão (tPag 03/04, CNPJ da credenciadora, tBand, nº de autorização, NSU) seguem com a emissão e aparecem na tela NFC-e. A NFC-e continua **simulada**; confira o mapeamento com seu emissor fiscal.
+- **NFC-e:** os dados do cartão (tPag 03/04, CNPJ da credenciadora, tBand, nº de autorização, NSU) seguem com a emissão e aparecem na tela NFC-e. Eles vão no grupo `card` do `detPag` da NFC-e (seção *NFC-e e Nota Fiscal Gaúcha*).
 - **Ligar:** Configurações → Balança e periféricos → *Integrado via Agente TEF local* (URL, token, terminal) e **Testar agente TEF**. `FRUTEIRA_TEF_OBRIGATORIO=true` exige TEF para crédito/débito; sem isso, a opção *maquininha manual* continua disponível se o agente cair.
 - **Segurança do agente:** só escuta em 127.0.0.1; CORS restrito à origem do front (`TEF_ORIGENS`/`FRONT_URL`); token obrigatório (`TEF_TOKEN`, cabeçalho `X-Tef-Token`) para que outras páginas abertas no navegador não acionem a maquininha; responde ao cabeçalho de rede privada do Chrome/Edge (front HTTPS → 127.0.0.1 é permitido, sem *mixed content*). Em produção use token longo.
 - **Simulador** (os **centavos** do valor definem o resultado): `,01` negada (saldo insuficiente) · `,02` negada (senha incorreta) · `,03` erro de comunicação · `,04` cancelada no pinpad · demais: aprovada. O comprovante sai marcado "SIMULADO — sem valor". O CNPJ da credenciadora é **fictício** no simulador; no TEF real vem do provedor.
@@ -218,7 +218,7 @@ Tela **Relatórios → Auditoria** (somente gerente): quem fez, quando, o quê e
 | Cotações CEASA | retaguarda | mín/média/máx/última por produto |
 | Sugestão de compras | vendas + Open-Meteo | média por dia da semana × previsão do tempo (defina lat/lon em Periféricos) |
 | Contas a pagar/receber, DRE, fluxo de caixa | retaguarda + vendas | CMV usa o custo médio gravado em cada item vendido |
-| NFC-e / SAT | retaguarda | **SIMULADA** (chave 44 díg., contingência offline, cancelamento). Falta integrar emissor real |
+| NFC-e / SAT | retaguarda | Nota Fiscal Gaúcha: CPF no `<dest>`, assinatura A1, SEFAZ-RS (mTLS), contingência, cancelamento, DANFE. **Simulador** por padrão; real = `FISCAL_PROVIDER=sefaz` (ver seção NFC-e) |
 | Margem por categoria | catalogo | margem bruta e real (descontando perda) |
 | Encartes / WhatsApp | retaguarda | gera texto e abre `wa.me` por cliente; envio em massa automático exige WhatsApp Cloud API |
 | Etiquetas e EAN-13 | — | EAN-13 de peso variável (2+PLU+valor), impressão pelo navegador |
@@ -258,6 +258,7 @@ Catálogo em `pdv-web/src/cartoes.js` e `vendas-service/.../Cartoes.java` (mante
 `./gerar-producao.sh` (Windows: `gerar-producao.bat`) monta a pasta **`producao/`** com tudo que o servidor precisa:
 
 - `servicos/` (5 jars Quarkus já compilados), `web/` (front compilado), `servidor-web.mjs`, `docker-compose.prod.yml` (PostgreSQL + Keycloak + nginx opcional), `keycloak/`, `nginx/`, `database/`, `.env`, `iniciar`/`parar`/`backup`/`ssl` (.sh e .bat) e `LEIA-ME.txt`.
+- O `iniciar.sh`/`iniciar.bat` da pasta também **se autocorrigem**: se faltar `.env`, compose, Keycloak, nginx etc., copiam da raiz do projeto; senha vazia ou de exemplo (`troque-...`) vira uma senha aleatória gravada no `.env` (`./iniciar.sh --preparar` só prepara, sem iniciar).
 - O `.env` de produção é criado com **senhas aleatórias** (banco, Keycloak e `TEF_TOKEN`) e **nunca é sobrescrito** ao gerar de novo.
 - Rode o gerador na máquina de desenvolvimento (Java, Maven, Node). O **servidor** só precisa de Java 21 + Docker (+ Node se não usar nginx) — sem Maven e sem compilar.
 - Mudou `KEYCLOAK_URL`/`FRONT_URL`/domínios? Gere de novo: a URL do Keycloak é embutida no front no build.
@@ -270,12 +271,34 @@ Catálogo em `pdv-web/src/cartoes.js` e `vendas-service/.../Cartoes.java` (mante
 - Esperado = fundo de troco + vendas em dinheiro do operador no turno + suprimentos − sangrias. Cada venda guarda o operador (`usuario`). Vendas feitas offline entram no turno do operador que as sincronizar.
 - Um turno aberto por operador; o fechamento exige turno aberto. Não há trava de venda sem turno (apenas um aviso no PDV).
 
+## NFC-e e Nota Fiscal Gaúcha (CPF na nota → SEFAZ-RS)
+
+**O que foi feito**
+- **CPF no caixa (opcional):** campo com máscara `000.000.000-00`; vazio = venda anônima (a NFC-e sai sem o grupo `<dest>`). CPF incompleto/inválido bloqueia o **Pagar** (apague o campo para vender sem CPF).
+- **Validação em Java** (`Cpf.java`, dígitos verificadores módulo 11, rejeita sequências iguais): o `vendas-service` recusa a venda com `422 CPF inválido` e o emissor também recusa; espelho em `pdv-web/src/cpf.js` para o feedback imediato. Endpoints: `GET /api/vendas/vendas/cpf/{cpf}/validar` e `GET /api/retaguarda/nfce/cpf/{cpf}/validar`.
+- **XML** (`fiscal/NfceXml.java`): NFC-e modelo 65, layout 4.00, `<dest><CPF>…</CPF>[<xNome>]<indIEDest>9</indIEDest></dest>` só quando há CPF (em homologação o `xNome` e o 1º item recebem os textos obrigatórios do fisco).
+- **Assinatura e transmissão** (`Assinador`, `SefazClient`, `NfceEmissor`): XMLDSig com certificado **A1** (.pfx), SOAP 1.2 por **mTLS** para NFeAutorizacao4 / NfeConsulta4 / RecepcaoEvento4 da SEFAZ-RS, síncrono (`indSinc=1`). Implementado **só com o JDK** (sem a biblioteca `wmixvideo/nfe`: o ambiente de desenvolvimento não alcançava o Maven Central, então não pude compilar contra ela). Os mesmos passos (montar → assinar → enviar → interpretar) podem ser trocados pela `wmixvideo/nfe` ou por uma API (Focus NFe, Nuvem Fiscal) mantendo os endpoints de `NfceResource`.
+- **QR Code v2** (online e offline), **DANFE NFC-e** 80 mm com CPF, chave, protocolo e QR Code (`Danfe.jsx`), XML baixável (`GET /nfce/{id}/xml`).
+- **Retornos:** `100 - Autorizado` conclui e mostra o aviso com **Imprimir DANFE** (sem CPF a venda segue sem interromper o caixa). **Rejeição de CPF** (cStat 237 ou mensagem com “CPF”/“destinatário”): o caixa abre “SEFAZ rejeitou o CPF” e **corrige e reenvia** (mesmo número) ou **emite sem CPF**, sem refazer a venda. Outras rejeições/denegação aparecem na tela NFC-e com cStat e motivo.
+- **Contingência offline (tpEmis 9):** sem internet ou SEFAZ fora do ar, a nota é assinada e emitida offline (`dhCont`, `xJust`, QR Code de contingência), fica `CONTINGENCIA` e é transmitida depois pelo botão **Transmitir**. Após timeout o sistema **consulta a chave** antes de decidir (evita nota duplicada); se a SEFAZ não responde, emite em contingência com um novo número (o número pulado deve ser **inutilizado** no portal).
+- **Cancelamento** (evento 110111, justificativa ≥ 15 caracteres) pela tela NFC-e.
+
+**Como ligar (`.env`)**: `FISCAL_PROVIDER=sefaz`, emitente (`FISCAL_CNPJ/RAZAO/IE/CMUN/...`), `FISCAL_CSC_ID` + `FISCAL_CSC` (gerados no portal da SEFAZ-RS), `FISCAL_CERT_PATH`/`FISCAL_CERT_SENHA` (A1) e comece com `FISCAL_AMBIENTE=2` (homologação). `./iniciar.sh` confere o que falta. A tela NFC-e mostra o ambiente e as pendências. Padrão `simulador`: nada vai à SEFAZ.
+
+**Testes sem Maven:** `./retaguarda-service/testar-fiscal.sh` (42 verificações: CPF, XML com/sem `<dest>`, assinatura XMLDSig validada, QR Code, cStat 100/237/302, SEFAZ fora/timeout, contingência e transmissão posterior, cancelamento) usando certificado de teste e uma SEFAZ simulada local. Front: `npm test` (`tests/nfg.test.jsx`).
+
+**NÃO foi testado / confira antes de produção**
+- Nunca houve comunicação com a SEFAZ-RS real (a rede do ambiente de desenvolvimento a bloqueia). Valide em **homologação** com o seu certificado: URLs padrão do RS, nomes dos serviços SOAP, a cadeia de certificados (se o TLS falhar use `FISCAL_TRUST_PATH`) e a validação XSD (não há XSD embutido; a SEFAZ responde cStat 225 se o schema divergir).
+- Regime tributário montado: **Simples Nacional** (CRT 1, ICMSSN102, PIS/COFINS CST 07). Frutas/verduras podem ter tratamento próprio (isenção, CSOSN 400…): confirme **CFOP/CSOSN** com o contador. Regime normal (CRT 3) não está montado.
+- Certificado **A3** (token/cartão) não é lido: use A1 ou um emissor via API. O CSC e o `cIdToken` seguem como configurados (confira zeros à esquerda). Prazo máximo para transmitir a contingência: veja a regra vigente da SEFAZ-RS.
+- Vendas gravadas offline no navegador (fila) ainda não geram NFC-e ao sincronizar: emita em NFC-e › Vendas sem nota.
+
 ## Pendências para produção
 
 **Antes de operar de verdade**
 - Compilar e subir os 5 serviços Java numa máquina com Maven (nada do Java foi compilado/executado no ambiente de desenvolvimento do assistente; só checagem de sintaxe). Rode `gerar-producao` e acompanhe os `logs/`.
 - Confirmar o formato real das APIs de NCM (BrasilAPI e Siscomex): os leitores aceitam variações de campos, mas não foram testados contra as APIs reais.
-- **NFC-e real**: hoje é simulada (chave/protocolo fictícios). Integrar emissor (SEFAZ/Focus NFe) em `NfceResource`, incluindo CNPJ da credenciadora, tPag dos vales (10/11) e certificado digital.
+- **NFC-e real**: emissor SEFAZ-RS implementado (seção *NFC-e e Nota Fiscal Gaúcha*), mas **ainda não homologado** com certificado e SEFAZ reais; falta validar regime tributário/CFOP com o contador e o A3.
 - **TEF real**: trocar `TEF_PROVIDER=simulador` pelo provedor contratado (CliSiTef/PayGo) e homologar; vales (Alelo, Ticket, Pluxee, VR...) estão lançados manualmente, sem autorização online.
 - **PIX real**: `PIX_PROVIDER=psp` com credenciais/certificado do PSP e `FRUTEIRA_PIX_WEBHOOK_SEGREDO`.
 - Trocar as senhas temporárias do Keycloak (`trocar123`) e definir `TEF_TOKEN` igual nos caixas.
