@@ -54,8 +54,24 @@ if [ "$APP_ENV" = producao ]; then
     [ -r "$FISCAL_CERT_PATH" ] || { echo "❌ Certificado A1 não encontrado/legível: $FISCAL_CERT_PATH"; exit 1; }
     [ "${FISCAL_AMBIENTE:-2}" = 1 ] && echo "⚠ NFC-e em PRODUÇÃO (FISCAL_AMBIENTE=1): as notas têm valor fiscal." || echo "ℹ NFC-e em HOMOLOGAÇÃO (FISCAL_AMBIENTE=2): sem valor fiscal."
   fi
-  [ "${PIX_PROVIDER:-simulador}" = simulador ] && echo "ℹ Pix em modo SIMULADOR (PIX_PROVIDER=simulador): não é Pix real."
-  [ "${PIX_PROVIDER:-simulador}" = psp ] && [ -z "${FRUTEIRA_PIX_WEBHOOK_SEGREDO:-}" ] && { echo "❌ Pix com PSP exige FRUTEIRA_PIX_WEBHOOK_SEGREDO no .env (o webhook é público)"; exit 1; }
+  PIXP=$(echo "${PIX_PROVIDER:-simulador}" | tr 'a-z -' 'A-Z__')
+  case "$PIXP" in
+    SIMULADOR|EFI|MERCADO_PAGO|ASAAS|ITAU|BRADESCO|SICOOB|SICREDI) ;;
+    *) echo "❌ PIX_PROVIDER inválido ('${PIX_PROVIDER}'). Use: SIMULADOR, EFI, MERCADO_PAGO, ASAAS, ITAU, BRADESCO, SICOOB ou SICREDI"; exit 1 ;;
+  esac
+  [ "$PIXP" = SIMULADOR ] && echo "ℹ Pix em modo SIMULADOR (PIX_PROVIDER=simulador): não é Pix real."
+  if [ "$PIXP" != SIMULADOR ]; then
+    case "$PIXP" in
+      MERCADO_PAGO) req="PIX_MERCADO_PAGO_ACCESS_TOKEN PIX_MERCADO_PAGO_EMAIL_PAGADOR FRUTEIRA_PIX_WEBHOOK_URL" ;;
+      ASAAS)        req="PIX_ASAAS_API_KEY PIX_ASAAS_CLIENTE_ID" ;;
+      *)            req="PIX_${PIXP}_CLIENT_ID PIX_${PIXP}_CLIENT_SECRET PIX_${PIXP}_CERTIFICADO" ;;
+    esac
+    falta=""; for v in $req; do [ -z "${!v:-}" ] && falta="$falta $v"; done
+    case "$PIXP" in MERCADO_PAGO|ASAAS) ;; *) k="PIX_${PIXP}_CHAVE"; [ -z "${PIX_CHAVE:-}" ] && [ -z "${!k:-}" ] && falta="$falta PIX_CHAVE" ;; esac
+    [ -n "$falta" ] && { echo "❌ PIX_PROVIDER=$PIXP exige no .env:$falta"; exit 1; }
+    c="PIX_${PIXP}_CERTIFICADO"; [ -n "${!c:-}" ] && [ ! -r "${!c}" ] && { echo "❌ Certificado do Pix não encontrado/legível: ${!c}"; exit 1; }
+  fi
+  [ "$PIXP" != SIMULADOR ] && [ -z "${FRUTEIRA_PIX_WEBHOOK_SEGREDO:-}" ] && { echo "❌ Pix com provedor real exige FRUTEIRA_PIX_WEBHOOK_SEGREDO no .env (o webhook é público)"; exit 1; }
   echo "Gerando o front (dist)..."
   (cd pdv-web && { [ -d node_modules ] || npm install; } && npm run build) > logs/pdv-web.log 2>&1 || { echo "❌ Build do front falhou (logs/pdv-web.log)"; exit 1; }
   echo "Subindo PostgreSQL e Keycloak$([ "$USE_NGINX" = true ] && echo ' e nginx')..."

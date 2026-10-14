@@ -1,7 +1,7 @@
 package br.com.fruteira.vendas;
 
-import java.util.Optional;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URI;
@@ -27,47 +27,45 @@ import org.jboss.logging.Logger;
  * Os CENTAVOS do valor escolhem o comportamento: ,01 nunca paga (para ver a expiração) · ,03 envia o webhook duplicado (idempotência) · demais: paga.
  */
 @ApplicationScoped
-public class SimuladorPixProvider implements PixProvider {
-    private static final Logger LOG = Logger.getLogger(SimuladorPixProvider.class);
+public class SimuladorPixService implements PixProviderService {
+    private static final Logger LOG = Logger.getLogger(SimuladorPixService.class);
     private static final String ALFABETO = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    @ConfigProperty(name = "pix.nome", defaultValue = "FRUTEIRA CONVENTOS") String nome;
-    @ConfigProperty(name = "pix.cidade", defaultValue = "CIDADE") String cidade;
-    @ConfigProperty(name = "pix.simulador.pagar-em-seg", defaultValue = "6") int pagarEm;
-    @ConfigProperty(name = "pix.webhook.segredo") Optional<String> segredoCfg;   // vazio = não configurado
-    private String segredo() { return segredoCfg.orElse(""); }
+    @Inject PixConfig config;
+    private String segredo() { return config.webhook().segredo().orElse(""); }
     @ConfigProperty(name = "quarkus.http.port", defaultValue = "8083") int porta;
 
-    private static final class Cob { BigDecimal valor; volatile String status = "ATIVA"; volatile String e2e; volatile LocalDateTime horario; }
+    private static final class Cob { BigDecimal valor; volatile PixStatus status = PixStatus.ATIVA; volatile String e2e; volatile LocalDateTime horario; }
     private final Map<String, Cob> cobs = new ConcurrentHashMap<>();
     private final HttpClient http = HttpClient.newHttpClient();
     private final ScheduledExecutorService agenda = Executors.newScheduledThreadPool(2, r -> { Thread t = new Thread(r, "pix-simulador"); t.setDaemon(true); return t; });
 
-    @Override public String nome() { return "simulador"; }
+    @Override public PixProvider provider() { return PixProvider.SIMULADOR; }
 
     @Override
     public Criada criar(String txid, BigDecimal valor, int expiracaoSeg, String descricao) {
         String location = "pix.simulador.local/qr/v2/" + txid;
         Cob c = new Cob(); c.valor = valor; cobs.put(txid, c);
+        int pagarEm = config.simulador().pagarEmSeg();
         int centavos = (int) (valor.movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValue() % 100);
         if (pagarEm > 0 && centavos != 1) agenda.schedule(() -> pagar(txid, centavos == 3 ? 2 : 1), pagarEm, TimeUnit.SECONDS);
-        return new Criada(BrCode.dinamico(location, valor, nome, cidade), location);
+        return new Criada(BrCode.dinamico(location, valor, config.nome(), config.cidade()), location);
     }
 
     @Override
     public Situacao consultar(String txid) {
         Cob c = cobs.get(txid);
-        if (c == null) return new Situacao("ATIVA", null, null, null);        // desconhecida (ex.: reinício): mantém
+        if (c == null) return new Situacao(PixStatus.ATIVA, null, null, null);        // desconhecida (ex.: reinício): mantém
         return new Situacao(c.status, c.e2e, c.valor, c.horario);
     }
-    @Override public void cancelar(String txid) { Cob c = cobs.get(txid); if (c != null && "ATIVA".equals(c.status)) c.status = "REMOVIDA"; }
+    @Override public void cancelar(String txid) { Cob c = cobs.get(txid); if (c != null && c.status == PixStatus.ATIVA) c.status = PixStatus.REMOVIDA_PELO_USUARIO_RECEBEDOR; }
     @Override public void devolver(String endToEndId, String idDevolucao, BigDecimal valor) { LOG.infof("[simulador] devolução %s de R$ %s (%s)", idDevolucao, valor, endToEndId); }
     @Override public void registrarWebhook(String url) { LOG.infof("[simulador] webhook 'registrado': %s", url); }
 
     /** Simula o cliente pagando: o "PSP" notifica o webhook (vezes > 1 = notificação duplicada). */
     public void pagar(String txid, int vezes) {
         Cob c = cobs.get(txid);
-        if (c == null || !"ATIVA".equals(c.status)) return;
-        c.status = "CONCLUIDA"; c.e2e = e2e(); c.horario = LocalDateTime.now();
+        if (c == null || c.status != PixStatus.ATIVA) return;
+        c.status = PixStatus.CONCLUIDA; c.e2e = e2e(); c.horario = LocalDateTime.now();
         String json = "{\"pix\":[{\"endToEndId\":\"" + c.e2e + "\",\"txid\":\"" + txid + "\",\"valor\":\""
             + c.valor.setScale(2, RoundingMode.HALF_UP).toPlainString() + "\",\"horario\":\"" + OffsetDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME) + "\"}]}";
         for (int i = 0; i < Math.max(vezes, 1); i++) enviarWebhook(json);

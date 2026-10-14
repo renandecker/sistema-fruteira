@@ -9,6 +9,8 @@ import java.time.LocalDateTime;
 /**
  * Cobrança Pix dinâmica. Ciclo: ATIVA → CONCLUIDA (pago, valor exato) | DIVERGENTE (valor diferente) | EXPIRADA | CANCELADA;
  * CONCLUIDA/DIVERGENTE → DEVOLVIDA. A venda é vinculada (vendaId) quando o Pix recebido paga uma venda.
+ * ATIVA, CONCLUIDA e EXPIRADA coincidem com {@link PixStatus} (o que o provedor informa); REMOVIDA_PELO_USUARIO_RECEBEDOR vira CANCELADA.
+ * "provedor" guarda o nome do {@link PixProvider} (linhas antigas podem ter "simulador"/"psp").
  */
 @Entity
 public class PixCobranca extends PanacheEntity {

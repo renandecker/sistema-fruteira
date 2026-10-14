@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { api, Pagina, Aviso } from './lib.jsx'
 
-const ROTULO = { CADASTRO: 'Cadastro', EDICAO: 'Edição', DESATIVACAO: 'Desativação', REATIVACAO: 'Reativação', BAIXA: 'Baixa de estoque', CANCELAMENTO: 'Cancelamento' }
-const COR = { CADASTRO: 'var(--verde)', EDICAO: '#e0a100', DESATIVACAO: 'var(--vermelho)', REATIVACAO: '#1976d2', BAIXA: '#5d4037', CANCELAMENTO: '#7b1fa2' }
+const ROTULO = { CADASTRO: 'Cadastro', EDICAO: 'Edição', DESATIVACAO: 'Desativação', REATIVACAO: 'Reativação', BAIXA: 'Baixa de estoque', CANCELAMENTO: 'Cancelamento', VENDA: 'Venda' }
+const COR = { CADASTRO: 'var(--verde)', EDICAO: '#e0a100', DESATIVACAO: 'var(--vermelho)', REATIVACAO: '#1976d2', BAIXA: '#5d4037', CANCELAMENTO: '#7b1fa2', VENDA: '#00897b' }
 const parse = s => { try { return s ? JSON.parse(s) : null } catch { return null } }
 const fmt = v => v === null || v === undefined ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v)
 

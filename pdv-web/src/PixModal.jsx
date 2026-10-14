@@ -47,7 +47,7 @@ export default function PixModal({ valor, onPago, onFechar }) {
       {ativa && <>
         <div style={{ background: '#fff', padding: 10, display: 'inline-block', border: '2px solid var(--borda)', borderRadius: 12 }}><QRCodeSVG value={cob.pixCopiaECola} size={210} fgColor="#066b43" /></div>
         <div className="tef-msg" role="status" style={{ fontSize: 20 }}>Aguardando o pagamento… <b>{mmss(resta)}</b></div>
-        {cob.provedor === 'simulador' && <div style={{ margin: '4px 0' }}><span className="classe" style={{ background: '#e0a100' }}>SIMULADOR — não é um Pix real</span>{' '}
+        {String(cob.provedor || '').toLowerCase() === 'simulador' && <div style={{ margin: '4px 0' }}><span className="classe" style={{ background: '#e0a100' }}>SIMULADOR — não é um Pix real</span>{' '}
           <button className="btn sec" onClick={() => simularPagamento(cob.id).catch(e => setErro(String(e.message || e)))}>Simular pagamento do cliente</button></div>}
         <textarea readOnly aria-label="Pix Copia e Cola" value={cob.pixCopiaECola} rows={3} style={{ width: '100%', fontSize: 11, fontFamily: 'monospace' }} onFocus={e => e.target.select()} />
         <div><button className="btn" onClick={copiar}>{copiado ? '✔ Copiado!' : 'Copiar Pix Copia e Cola'}</button></div></>}

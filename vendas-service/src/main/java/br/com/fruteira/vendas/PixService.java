@@ -1,44 +1,61 @@
 package br.com.fruteira.vendas;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Any;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.*;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 /** Regras do Pix: cria a cobrança no PSP, recebe o webhook (idempotente), expira, cancela e devolve. */
 @ApplicationScoped
 public class PixService {
     private static final Logger LOG = Logger.getLogger(PixService.class);
-    @Inject @Any Instance<PixProvider> providers;
+    @Inject @Any Instance<PixProviderService> servicos;
+    @Inject PixConfig config;
     @Inject Auditor auditor;
-    @ConfigProperty(name = "pix.provider", defaultValue = "simulador") String providerNome;
-    @ConfigProperty(name = "pix.expiracao-seg", defaultValue = "300") int expiracaoSeg;
 
-    public PixProvider provider() {
-        for (PixProvider p : providers) if (p.nome().equalsIgnoreCase(providerNome)) return p;
-        throw new IllegalStateException("Provedor Pix desconhecido: " + providerNome);
+    /** Provedor escolhido em PIX_PROVIDER (erro 500 com a lista de opções se o valor for inválido). */
+    public PixProvider provedor() {
+        try { return PixProvider.deTexto(config.provider()); } catch (IllegalArgumentException e) { throw Http.erro(500, e.getMessage()); }
     }
-    public Optional<SimuladorPixProvider> simulador() { PixProvider p = provider(); return p instanceof SimuladorPixProvider s ? Optional.of(s) : Optional.empty(); }
+    /** Implementação do provedor escolhido (erro 501 se o provedor existe no enum mas ainda não tem integração). */
+    public PixProviderService servico() {
+        PixProvider p = provedor();
+        List<String> disponiveis = new ArrayList<>();
+        for (PixProviderService s : servicos) { if (s.provider() == p) return s; disponiveis.add(s.provider().name()); }
+        Collections.sort(disponiveis);
+        throw Http.erro(501, "O provedor Pix " + p.rotulo() + " (" + p.name() + ") ainda não tem integração neste sistema. Disponíveis: " + String.join(", ", disponiveis));
+    }
+    public Optional<SimuladorPixService> simulador() { return servico() instanceof SimuladorPixService s ? Optional.of(s) : Optional.empty(); }
+
+    /** Na partida avisa no log o que falta configurar (não derruba o serviço: o resto do sistema segue funcionando). */
+    void aoIniciar(@Observes StartupEvent ev) {
+        try {
+            PixProviderService s = servico();
+            List<String> problemas = s.problemasDeConfiguracao();
+            if (problemas.isEmpty()) LOG.infof("Pix: provedor %s (%s)", s.provider().name(), s.provider().rotulo());
+            else LOG.warnf("Pix: provedor %s com configuração incompleta: %s", s.provider().name(), String.join("; ", problemas));
+        } catch (Exception e) { LOG.warn("Pix: " + e.getMessage()); }
+    }
 
     @Transactional
     public PixCobranca criar(BigDecimal valor, String descricao, String terminal, String operador) {
         if (valor == null || valor.signum() <= 0) throw Http.erro(422, "Informe um valor maior que zero");
         String txid = UUID.randomUUID().toString().replace("-", "");            // 32 caracteres [a-zA-Z0-9] (Bacen: 26 a 35)
-        PixProvider.Criada c;
-        try { c = provider().criar(txid, valor, expiracaoSeg, descricao); }
+        PixProviderService svc = servico();
+        PixProviderService.Criada c;
+        try { c = svc.criar(txid, valor, config.expiracaoSeg(), descricao); }
         catch (Exception e) { LOG.error("Falha ao criar cobrança Pix", e); throw Http.erro(502, "Não foi possível gerar o Pix no PSP: " + e.getMessage()); }
         PixCobranca x = new PixCobranca();
-        x.txid = txid; x.valor = valor; x.descricao = descricao; x.provedor = provider().nome();
-        x.pixCopiaECola = c.pixCopiaECola(); x.location = c.location(); x.expiraEm = LocalDateTime.now().plusSeconds(expiracaoSeg);
+        x.txid = txid; x.valor = valor; x.descricao = descricao; x.provedor = svc.provider().name();
+        x.pixCopiaECola = c.pixCopiaECola(); x.location = c.location(); x.expiraEm = LocalDateTime.now().plusSeconds(config.expiracaoSeg());
         x.operador = operador; x.terminal = terminal;
         x.persist();
         return x;
@@ -50,30 +67,38 @@ public class PixService {
         PixCobranca c = achar(id);
         if (!"ATIVA".equals(c.status)) return c;
         LocalDateTime agora = LocalDateTime.now();
-        if (agora.isAfter(c.expiraEm)) { c.status = "EXPIRADA"; return c; }
+        if (agora.isAfter(c.expiraEm)) {                        // venceu: confere uma última vez (pagou no último segundo?) e, se não, cancela no provedor para não aceitar pagamento tardio
+            try {
+                PixProviderService.Situacao s = servico().consultar(c.txid);
+                if (s.status() == PixStatus.CONCLUIDA && s.endToEndId() != null) { aplicarPagamento(c, s.endToEndId(), s.valor() != null ? s.valor() : c.valor, s.horario()); return c; }
+                servico().cancelar(c.txid);
+            } catch (Exception e) { LOG.warn("Não foi possível conferir/cancelar o Pix vencido " + c.txid + " no provedor: " + e.getMessage()); }
+            c.status = PixStatus.EXPIRADA.name();
+            return c;
+        }
         if (c.ultimaConsulta == null || c.ultimaConsulta.isBefore(agora.minusSeconds(10))) {
             c.ultimaConsulta = agora;
             try {
-                PixProvider.Situacao s = provider().consultar(c.txid);
-                if ("CONCLUIDA".equals(s.status()) && s.endToEndId() != null) aplicarPagamento(c, s.endToEndId(), s.valor() != null ? s.valor() : c.valor, s.horario());
-                else if ("REMOVIDA".equals(s.status())) c.status = "CANCELADA";
+                PixProviderService.Situacao s = servico().consultar(c.txid);
+                switch (s.status()) {
+                    case CONCLUIDA -> { if (s.endToEndId() != null) aplicarPagamento(c, s.endToEndId(), s.valor() != null ? s.valor() : c.valor, s.horario()); }
+                    case REMOVIDA_PELO_USUARIO_RECEBEDOR -> c.status = "CANCELADA";
+                    case EXPIRADA -> c.status = PixStatus.EXPIRADA.name();
+                    case ATIVA -> { /* segue aguardando */ }
+                }
             } catch (Exception e) { LOG.warn("Não foi possível conferir o Pix " + c.txid + " no PSP: " + e.getMessage()); }
         }
         return c;
     }
 
-    /** Webhook do PSP (payload padrão do Bacen: {"pix":[{endToEndId, txid, valor, horario}]}). Retorna quantos pagamentos novos aplicou. */
+    /** Webhook do PSP: cada provedor interpreta o seu payload ({@link PixProviderService#interpretarWebhook}). Retorna quantos pagamentos novos aplicou. */
     @Transactional
     public int receberNotificacao(JsonNode corpo) {
         int aplicados = 0;
-        for (JsonNode p : corpo.path("pix")) {
-            String txid = p.path("txid").asText(null), e2e = p.path("endToEndId").asText(null);
-            if (txid == null || e2e == null) continue;
-            PixCobranca c = PixCobranca.find("txid", txid).firstResult();
-            if (c == null) { LOG.warnf("Webhook Pix de txid desconhecido: %s", txid); continue; }
-            LocalDateTime quando = LocalDateTime.now();
-            try { quando = OffsetDateTime.parse(p.path("horario").asText()).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime(); } catch (Exception ignorada) { /* usa agora */ }
-            if (aplicarPagamento(c, e2e, new BigDecimal(p.path("valor").asText("0")), quando)) aplicados++;
+        for (PixProviderService.Notificacao n : servico().interpretarWebhook(corpo)) {
+            PixCobranca c = PixCobranca.find("txid", n.txid()).firstResult();
+            if (c == null) { LOG.warnf("Webhook Pix de txid desconhecido: %s", n.txid()); continue; }
+            if (aplicarPagamento(c, n.endToEndId(), n.valor(), n.horario())) aplicados++;
         }
         return aplicados;
     }
@@ -91,7 +116,7 @@ public class PixService {
     public PixCobranca cancelar(Long id) {
         PixCobranca c = achar(id);
         if (!"ATIVA".equals(c.status)) return c;
-        try { provider().cancelar(c.txid); } catch (Exception e) { LOG.warn("Não foi possível cancelar no PSP: " + e.getMessage()); }
+        try { servico().cancelar(c.txid); } catch (Exception e) { LOG.warn("Não foi possível cancelar no PSP: " + e.getMessage()); }
         c.status = "CANCELADA";
         return c;
     }
@@ -102,7 +127,7 @@ public class PixService {
         if ("DEVOLVIDA".equals(c.status)) return c;
         if (!"CONCLUIDA".equals(c.status) && !"DIVERGENTE".equals(c.status)) throw Http.erro(409, "Só Pix recebido pode ser devolvido (status " + c.status + ")");
         String idDev = ("D" + c.id + System.currentTimeMillis()).substring(0, Math.min(35, ("D" + c.id + System.currentTimeMillis()).length()));
-        try { provider().devolver(c.endToEndId, idDev, c.valorPago); }
+        try { servico().devolver(c.endToEndId, idDev, c.valorPago); }
         catch (Exception e) { throw Http.erro(502, "O PSP não aceitou a devolução: " + e.getMessage()); }
         c.status = "DEVOLVIDA"; c.idDevolucao = idDev; c.devolvidaEm = LocalDateTime.now();
         auditor.registrar("CANCELAMENTO", "Pix", c.id, "Pix devolvido: R$ " + c.valorPago + " (E2E " + c.endToEndId + (c.vendaId != null ? ", venda #" + c.vendaId : "") + ")", null, null);

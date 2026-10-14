@@ -86,6 +86,12 @@ public class VendaResource {
         tefs.forEach(t -> { t.vendaId = v.id; t.atualizadoEm = LocalDateTime.now(); });   // vincula o cartão à venda
         pixs.forEach(px -> px.vendaId = v.id);                                              // vincula o Pix à venda
         v.itens.forEach(i -> estoque.baixa(new BaixaDTO(i.produtoId, i.quantidade, "VENDA", "venda " + v.id)));
+        // auditoria da venda (best-effort: se a auditoria estiver fora do ar, a venda não é bloqueada)
+        StringBuilder meios = new StringBuilder();
+        for (Pagamento pg : v.pagamentos) meios.append(meios.length() == 0 ? "" : " + ").append(pg.meio).append(" R$ ").append(pg.valor);
+        String cpfMask = v.cpfCliente == null ? "sem CPF" : "CPF ***" + v.cpfCliente.substring(Math.max(0, v.cpfCliente.length() - 4));
+        auditor.registrar("VENDA", "Venda", v.id, "Venda #" + v.id + " finalizada: " + v.itens.size() + " item(ns), total R$ " + v.total
+            + (v.desconto.signum() > 0 ? " (desconto R$ " + v.desconto + ")" : "") + " | " + meios + " | " + cpfMask, null, null);
         return v;
     }
     /** Cancelamento exige PIN do gerente */

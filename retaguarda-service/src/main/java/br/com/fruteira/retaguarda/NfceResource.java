@@ -58,11 +58,19 @@ public class NfceResource {
         n.cartoes = e.cartoes() != null && e.cartoes().length() > 2000 ? e.cartoes().substring(0, 2000) : e.cartoes();
         n.numero = proximoNumero();
         try { n.payload = JSON.writeValueAsString(e); } catch (Exception ex) { /* sem payload: só não reenvia */ }
-        if (!fiscal.real()) { simular(n, e.contingencia()); return salvar(n); }
+        if (!fiscal.real()) { simular(n, e.contingencia()); return emitida(n); }
         if (e.itens() == null || e.itens().isEmpty() || e.pagamentos() == null || e.pagamentos().isEmpty())
             throw Http.erro(422, "Para a NFC-e real informe os itens (com NCM) e as formas de pagamento da venda");
         emitirReal(n, e.contingencia());
-        return salvar(n);
+        return emitida(n);
+    }
+
+    /** Salva a nota e registra a emissão na auditoria (CPF mascarado). */
+    private Nota emitida(Nota n) {
+        Nota s = salvar(n);
+        audit("VENDA", "NFC-e", s.id, "NFC-e nº " + s.numero + " emitida (venda #" + s.vendaId + ", R$ " + s.valor + ") · " + s.status
+            + (s.cStat != null ? " cStat " + s.cStat : "") + " · " + (s.cpf == null ? "sem CPF" : "CPF ***" + s.cpf.substring(7)), null, null);
+        return s;
     }
 
     /** Nota rejeitada por CPF/destinatário: o caixa corrige o CPF (ou deixa em branco = sem CPF) e reenvia, mantendo o mesmo número. */

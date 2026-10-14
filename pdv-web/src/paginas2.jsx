@@ -439,6 +439,7 @@ export function Perifericos() {
         <div><button className="btn sec" onClick={testarPix}>Testar Pix no servidor</button>{' '}<button className="btn sec" onClick={registrarWebhook}>Registrar webhook no PSP (gerente)</button>{' '}
           {px?.carregando && <span>consultando…</span>}
           {px?.ok && !px.aviso && <span>✔ provedor <b>{px.provedor}</b>{px.chave ? ` · chave ${px.chave}` : ''} · webhook {px.webhookConfigurado ? 'configurado' : 'não configurado'}{px.simulador ? ' — SIMULADOR (não é Pix real)' : ''}</span>}
+          {px?.ok && px.problemas?.length > 0 && <span style={{ color: 'var(--vermelho)' }}> ✖ Falta configurar: {px.problemas.join(' · ')}</span>}
           {px?.aviso && <span>{px.aviso}</span>}
           {px && px.ok === false && <span style={{ color: 'var(--vermelho)' }}>✖ {px.erro}</span>}</div>
         <small>O servidor fala com o PSP (chaves e certificado nunca vão para o navegador). O PSP avisa o pagamento pelo <b>webhook</b> (https://seu-dominio/api/vendas/pix/webhook?token=…) e o caixa acompanha a cada 3 s.</small></>}

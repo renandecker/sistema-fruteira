@@ -1,6 +1,5 @@
 package br.com.fruteira.vendas;
 
-import java.util.Optional;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
@@ -12,19 +11,16 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 /** API do Pix. O React só fala com este serviço (nunca com o PSP); o PSP chama o webhook. */
 @Path("/pix") @Produces(MediaType.APPLICATION_JSON) @Consumes(MediaType.APPLICATION_JSON)
 public class PixResource {
     @Inject PixService pix;
     @Inject Auditor auditor;
-    @ConfigProperty(name = "pix.webhook.segredo") Optional<String> segredoCfg;   // vazio = não configurado
-    @ConfigProperty(name = "pix.webhook.url") Optional<String> webhookUrlCfg;   // vazio = não configurado
-    @ConfigProperty(name = "pix.chave") Optional<String> chaveCfg;   // vazio = não configurado
-    private String segredo() { return segredoCfg.orElse(""); }
-    private String webhookUrl() { return webhookUrlCfg.orElse(""); }
-    private String chave() { return chaveCfg.orElse(""); }
+    @Inject PixConfig config;
+    private String segredo() { return config.webhook().segredo().orElse(""); }
+    private String webhookUrl() { return config.webhook().url().orElse(""); }
+    private String chave() { return config.chave().orElse(""); }
 
     public record Nova(BigDecimal valor, String descricao, String terminal) {}
     public record PixDTO(Long id, String txid, String status, BigDecimal valor, BigDecimal valorPago, String pixCopiaECola, LocalDateTime criadaEm, LocalDateTime expiraEm,
@@ -67,7 +63,7 @@ public class PixResource {
     @POST @Path("/webhook")
     public Map<String, Object> webhook(@HeaderParam("X-Webhook-Token") String cabecalho, @QueryParam("token") String consulta, JsonNode corpo) {
         if (segredo().isBlank()) {
-            if (!"simulador".equals(pix.provider().nome())) throw Http.erro(503, "Webhook sem segredo() configurado (FRUTEIRA_PIX_WEBHOOK_SEGREDO)");
+            if (pix.simulador().isEmpty()) throw Http.erro(503, "Webhook sem segredo() configurado (FRUTEIRA_PIX_WEBHOOK_SEGREDO)");
         } else {
             String recebido = cabecalho != null ? cabecalho : consulta;
             if (recebido == null || !MessageDigest.isEqual(recebido.getBytes(StandardCharsets.UTF_8), segredo().getBytes(StandardCharsets.UTF_8)))
@@ -78,20 +74,24 @@ public class PixResource {
 
     @GET @Path("/status")
     public Map<String, Object> status() {
-        return Map.of("provedor", pix.provider().nome(), "chave", chave().isBlank() ? "" : chave(), "webhookConfigurado", !webhookUrl().isBlank(), "simulador", pix.simulador().isPresent());
+        String nome = config.provider().toUpperCase(); List<String> problemas; boolean simulador = false;
+        try { PixProviderService s = pix.servico(); nome = s.provider().name(); simulador = s.provider() == PixProvider.SIMULADOR; problemas = s.problemasDeConfiguracao(); }
+        catch (WebApplicationException e) { problemas = List.of(String.valueOf(e.getMessage())); }   // provedor inválido ou sem integração: mostra em vez de dar erro 500
+        return Map.of("provedor", nome, "chave", chave(), "webhookConfigurado", !webhookUrl().isBlank(), "simulador", simulador,
+                      "problemas", problemas, "pronto", problemas.isEmpty());
     }
     /** (gerente) Registra no PSP a URL do webhook definida em FRUTEIRA_PIX_WEBHOOK_URL. */
     @POST @Path("/webhook/registrar")
     public Map<String, Object> registrarWebhook() {
         if (!auditor.gerente()) throw new ForbiddenException("Somente o gerente pode registrar o webhook");
         if (webhookUrl().isBlank()) throw Http.erro(422, "Defina FRUTEIRA_PIX_WEBHOOK_URL (https://seu-dominio/api/vendas/pix/webhook?token=SEGREDO)");
-        try { pix.provider().registrarWebhook(webhookUrl()); } catch (Exception e) { throw Http.erro(502, "O PSP não registrou o webhook: " + e.getMessage()); }
+        try { pix.servico().registrarWebhook(webhookUrl()); } catch (Exception e) { throw Http.erro(502, "O PSP não registrou o webhook: " + e.getMessage()); }
         return Map.of("registrado", true);
     }
     /** Só no simulador: faz de conta que o cliente pagou (o "PSP" chama o webhook). */
     @POST @Path("/simulador/cobrancas/{id}/pagar")
     public PixDTO simularPagamento(@PathParam("id") Long id) {
-        SimuladorPixProvider sim = pix.simulador().orElseThrow(() -> Http.erro(404, "Disponível apenas com PIX_PROVIDER=simulador"));
+        SimuladorPixService sim = pix.simulador().orElseThrow(() -> Http.erro(404, "Disponível apenas com PIX_PROVIDER=simulador"));
         PixCobranca c = pix.achar(id);
         sim.pagar(c.txid, 1);
         return dto(pix.achar(id));

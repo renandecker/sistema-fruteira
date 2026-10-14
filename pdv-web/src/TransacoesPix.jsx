@@ -21,6 +21,7 @@ export default function TransacoesPix() {
       <b>Provedor:</b>
       {!st ? <span>consultando…</span> : st.erro ? <span style={{ color: 'var(--vermelho)' }}>✖ {st.erro}</span>
         : <span>{st.provedor}{st.chave ? ` · chave ${st.chave}` : ''} · webhook {st.webhookConfigurado ? 'configurado' : 'não configurado'}</span>}
+      {st?.problemas?.length > 0 && <span style={{ color: 'var(--vermelho)' }} role="alert">✖ Falta configurar: {st.problemas.join(' · ')}</span>}
       {st?.simulador && <span className="classe" style={{ background: '#e0a100' }}>SIMULADOR — não é Pix real</span>}
       <button className="btn sec" onClick={tudo}>Atualizar</button>
     </div>
