@@ -1,0 +1,8 @@
+{
+  "name": "fruteira-teste-migrations",
+  "private": true,
+  "type": "module",
+  "description": "Aplica as migrations Flyway num PostgreSQL de verdade (PGlite, sem Docker) e confere com as entidades Java",
+  "scripts": { "test": "node testar-migrations.mjs" },
+  "devDependencies": { "@electric-sql/pglite": "0.2.17" }
+}

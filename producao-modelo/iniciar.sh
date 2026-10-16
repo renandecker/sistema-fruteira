@@ -73,7 +73,8 @@ trap cleanup INT TERM
 echo "Subindo PostgreSQL e Keycloak${USE_NGINX:+...}"
 docker compose -f docker-compose.prod.yml ${PERFIL[@]+"${PERFIL[@]}"} up -d || exit 1
 aguardar keycloak 8180
-for s in catalogo:8081 estoque:8082 vendas:8083 retaguarda:8084 tef-agent:8090; do
+# retaguarda PRIMEIRO: é o dono do Flyway (cria/atualiza o banco); os outros só validam o schema
+for s in retaguarda:8084 catalogo:8081 estoque:8082 vendas:8083 tef-agent:8090; do
   n=${s%%:*}; p=${s##*:}
   [ -f "servicos/$n/quarkus-run.jar" ] || { echo "❌ servicos/$n não encontrado (rode gerar-producao de novo)"; exit 1; }
   echo "Iniciando $n..."

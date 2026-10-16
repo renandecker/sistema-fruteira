@@ -40,9 +40,9 @@ try {
     if (abertas.length && !a.forcar) { log(`✘ Há serviços rodando (portas ${abertas.join(', ')}). Pare-os (./parar.sh) e tente de novo, ou use --forcar.`); process.exit(1) }
     const ts = agora()
     for (const s of fs.readdirSync(path.join(dir, 'dados'))) {
-      const dest = path.join(RAIZ, s, 'data')
+      const dest = s === '_raiz' ? path.join(RAIZ, 'data') : path.join(RAIZ, s, 'data')   // _raiz = H2 compartilhado
       if (fs.existsSync(dest)) fs.renameSync(dest, `${dest}.antes-restauracao-${ts}`)
-      fs.cpSync(path.join(dir, 'dados', s), dest, { recursive: true }); log(`✔ ${s}/data restaurado (o anterior ficou em data.antes-restauracao-${ts})`)
+      fs.cpSync(path.join(dir, 'dados', s), dest, { recursive: true }); log(`✔ ${s === '_raiz' ? 'data' : s + '/data'} restaurado (o anterior ficou em data.antes-restauracao-${ts})`)
     }
   }
   if (fs.existsSync(path.join(dir, 'config'))) { const saida = path.join(AQUI, `restaurado-${agora()}`); fs.cpSync(path.join(dir, 'config'), path.join(saida, 'config'), { recursive: true }); log(`ℹ .env, certificados e realm foram extraídos em ${saida} (não sobrescrevi nada: copie o que precisar).`) }

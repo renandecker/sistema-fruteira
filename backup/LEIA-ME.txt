@@ -8,7 +8,7 @@ FAZER UM BACKUP
 
 O QUE ENTRA
   Produção (APP_ENV=producao): dump do PostgreSQL da fruteira e do Keycloak (via Docker) — os contêineres precisam estar de pé.
-  Desenvolvimento: as pastas data/ (H2) de cada serviço. Pare o sistema antes, se puder.
+  Desenvolvimento: a pasta data/ da raiz (H2 único dos 4 serviços; backups antigos com data/ por serviço ainda restauram). Pare o sistema antes, se puder.
   Em ambos: .env, certificado digital A1 (FISCAL_CERT_PATH), realm do Keycloak e certificados TLS do nginx.
 
 PENDRIVE OU GOOGLE DRIVE

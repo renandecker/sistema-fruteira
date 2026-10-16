@@ -44,7 +44,7 @@ xcopy /e /i /q /y nginx\templates "%DEST%\nginx\templates" >nul
 xcopy /e /i /q /y nginx\snippets "%DEST%\nginx\snippets" >nul
 if not exist "%DEST%\nginx\certs" mkdir "%DEST%\nginx\certs"
 if not exist "%DEST%\database" mkdir "%DEST%\database"
-copy /y database\pre_cadastro_frutas_verduras.sql "%DEST%\database\" >nul
+copy /y retaguarda-service\src\main\resources\db\pre-cadastro\R__pre_cadastro_frutas_verduras.sql "%DEST%\database\pre_cadastro_frutas_verduras.sql" >nul
 copy /y producao-modelo\* "%DEST%\" >nul
 copy /y ssl.sh "%DEST%\" >nul & copy /y ssl.bat "%DEST%\" >nul
 if not exist "%DEST%\backup\saida" mkdir "%DEST%\backup\saida"

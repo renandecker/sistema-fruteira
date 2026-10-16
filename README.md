@@ -2,6 +2,7 @@
 
 ## Rodar tudo de uma vez
 - Linux/macOS: `./iniciar.sh` (Ctrl+C encerra; `./parar.sh` se sobrar processo)
+- **Portas:** ao iniciar (`iniciar.sh` e `iniciar.bat`), o que estiver escutando em 8081–8084 (serviços), 8090 (agente TEF) e 5173 (front) é encerrado, para uma execução anterior que ficou pendurada não impedir a subida; o script mostra qual processo foi encerrado e aborta se não conseguir liberar. PostgreSQL, Keycloak e nginx são do Docker e não são tocados. `LIBERAR_PORTAS=false` no `.env` desliga isso.
 - Windows: duplo clique em `iniciar.bat` (`parar.bat` encerra)
 
 ## Rodar manualmente (3 terminais + front)
@@ -12,7 +13,7 @@ cd vendas-service   && mvn quarkus:dev     # :8083
 cd retaguarda-service && mvn quarkus:dev   # :8084  (fornecedores, clientes, cotações, contas, NFC-e, usuários)
 cd pdv-web && npm i && npm run dev         # :5173
 ```
-Requer JDK 21, Maven e Docker (Em dev o banco é H2 em arquivo (pasta data/ de cada serviço), sem Docker). Cada serviço usa seu próprio schema/banco.
+Requer JDK 21, Maven e Docker (Em dev o banco é um H2 em arquivo (pasta data/ da raiz, compartilhado pelos 4 serviços), sem Docker).
 Sem balança física: no console do navegador `__simulaPeso(0.350)`.
 
 ## Já implementado
@@ -39,7 +40,7 @@ Copie `.env.example` para `.env` e escolha `APP_ENV`:
 |---|---|---|
 | Login | tela local (gerente/gerente, supervisor/supervisor, operador/operador) | **Keycloak (OIDC + PKCE)** |
 | APIs Quarkus | abertas (OIDC desligado) | exigem Bearer token; **perfil validado por rota** |
-| Banco | H2 em arquivo (`data/`) | PostgreSQL (`DB_URL`, `DB_USER`, `DB_PASS`) |
+| Banco | H2 em arquivo (`data/fruteira`, único) | PostgreSQL (`DB_URL`, `DB_USER`, `DB_PASS`) |
 | Dados de exemplo | sim | não |
 | Execução | `quarkus:dev` + Vite | jars (`mvn package`) + front buildado (`vite preview` ou **nginx/HTTPS** se `USE_NGINX=true`) |
 | Docker | não precisa | Keycloak + PostgreSQL (+ nginx opcional) — `docker-compose.prod.yml` |
@@ -169,10 +170,36 @@ Produto por **kg** só entra com peso lido da balança (anti-fraude); sem balan�
 
 ## Catálogo de imagens e pré-cadastro
 - **Imagem no PDV:** no cadastro do produto (e na coluna *Imagem* da tela Produtos) escolha a imagem no **catálogo** (≈70 frutas, legumes, verduras e temperos, com emoji ou ilustração vetorial) ou informe a URL de uma foto. Sem escolha, o sistema sugere pelo nome (Banana Prata → banana); o botão *Mapear imagens pelo nome* aplica isso aos produtos existentes. O PDV, o self-checkout e a consulta de preço usam a imagem escolhida.
-- **Script PostgreSQL:** `database/pre_cadastro_frutas_verduras.sql` cadastra 5 categorias e 69 produtos comuns (unidade, perda média, NCM sugerido, imagem) com PLU por popularidade. Idempotente. Rode **depois** de subir o `catalogo-service` em produção (ele cria as tabelas): `psql -h localhost -U postgres -d fruteira -f database/pre_cadastro_frutas_verduras.sql`. Preços e NCM são **referência**: confira antes de vender/emitir nota. **Rodar local:**
+- **Pré-cadastro (PostgreSQL):** 5 categorias e 69 produtos comuns (unidade, perda média, NCM sugerido, imagem) com PLU por popularidade, vindos de `retaguarda-service/src/main/resources/db/pre-cadastro/R__pre_cadastro_frutas_verduras.sql`. É uma migration **repetível** do Flyway: em **produção** o `retaguarda-service` (dono do Flyway) a aplica sozinho ao subir (depois do schema) e só a repete se o arquivo mudar; é idempotente. Para não carregar: `FLYWAY_LOCATIONS=db/migration` no `.env`. Preços e NCM são **referência**: confira antes de vender/emitir nota.
   - *Desenvolvimento (H2, sem Docker):* o mesmo pré-cadastro (classe `PreCadastro`) é carregado **sozinho ao subir** o `catalogo-service` (`%dev.fruteira.pre-cadastro=true`). Em qualquer ambiente também há o botão **📥 Importar frutas e verduras mais comuns** na tela Produtos (`POST /produtos/pre-cadastro`); pode repetir sem duplicar.
-  - *PostgreSQL local:* `database/aplicar_sql_local.sh` (ou `.bat`) aplica o `.sql` usando o `psql` instalado ou o contêiner `postgres` do `docker-compose.prod.yml`.
-  - A lista existe em dois lugares (SQL e `PreCadastro.java`, gerada do SQL); ao editar uma, atualize a outra.
+  - *Manual (PostgreSQL sem subir o serviço):* `database/aplicar_sql_local.sh` (ou `.bat`) aplica o mesmo arquivo com o `psql` ou o contêiner `postgres`.
+  - A lista existe em dois lugares (o `R__...sql` e `PreCadastro.java`); ao editar uma, atualize a outra.
+
+## Banco de dados: migrations com Flyway (só no retaguarda-service)
+Os 4 serviços (catalogo, estoque, vendas, retaguarda) dividem **um único banco** e o **Flyway roda só no `retaguarda-service`**, que é o dono das migrations de todos. Os outros 3 não têm Flyway: o Hibernate apenas **confere** o schema (`validate`); se uma `@Entity` não bater com o banco, o serviço não sobe e diz o que falta. Por isso o `retaguarda-service` **sobe primeiro**: `iniciar.sh/.bat` (dev e produção) já fazem isso e esperam ele responder antes de iniciar os demais.
+
+Tudo fica em `retaguarda-service/src/main/resources/db/migration/`, com **numeração única** e o serviço no nome do arquivo:
+
+| Arquivos | Serviço |
+|---|---|
+| `V1`–`V3__retaguarda_...` | retaguarda |
+| `V4`–`V6__catalogo_...` | catalogo |
+| `V7`–`V9__estoque_...` | estoque |
+| `V10`–`V12__vendas_...` | vendas |
+
+Em cada serviço: `..._schema_inicial` (tabelas e sequências, `IF NOT EXISTS`), `..._completa_colunas_banco_antigo` (colunas que faltem em bancos criados antes do Flyway) e `..._indices`. Os dados iniciais ficam em `db/pre-cadastro/R__pre_cadastro_frutas_verduras.sql` (só produção).
+
+- **Desenvolvimento:** os 4 serviços usam o **mesmo arquivo H2** (`data/fruteira` na raiz, modo `AUTO_SERVER`), como o banco único de produção. Se o `retaguarda-service` for encerrado, reinicie os demais (ele é quem "abre" o H2). Mudou o caminho? `H2_ARQUIVO` no `.env`. Quem tinha as pastas `<servico>-service/data/` antigas: pode apagá-las (o banco novo nasce vazio; o backup antigo ainda restaura).
+- **Produção (PostgreSQL):** nada a rodar à mão; troque os jars (`servicos/`) e reinicie. Faça um backup antes (`backup/`).
+- **Banco que já existia** (criado pelo Hibernate ou pela versão anterior do Flyway, com um histórico por serviço): o Flyway assume o banco como base (`baseline-on-migrate`, versão 0) num histórico novo, `flyway_historico`, e roda tudo sem recriar nada (as migrations são idempotentes). As tabelas `flyway_historico_<servico>` antigas ficam sem uso; pode apagá-las.
+- **Mudou uma `@Entity` (de qualquer serviço)?** Crie a próxima migration, **nunca edite uma já aplicada** (o Flyway recusa por checksum):
+  1. `./database/nova-migration.sh vendas "adiciona campo observacao"` (Windows: `database\nova-migration.bat ...`) cria `V13__vendas_adiciona_campo_observacao.sql` no `retaguarda-service`, com o próximo número;
+  2. escreva o SQL **portátil** (roda no H2 e no PostgreSQL: sem `::`, `SERIAL`, `ON CONFLICT`, `ILIKE`, `RETURNING`, blocos `DO`; sem `BEGIN/COMMIT`);
+  3. `./database/testar-migrations.sh` (ou `.bat`; precisa de Node 18+; na 1ª vez baixa o PGlite) aplica tudo num PostgreSQL de teste, **compara tabelas, colunas, tipos, NOT NULL, UNIQUE, FK e sequências com as `@Entity` dos 4 serviços** e imprime o SQL que falta; também recusa versão repetida, arquivo sem o nome do serviço e `db/` fora do retaguarda;
+  4. suba o `retaguarda-service`: a migration roda sozinha; depois os demais.
+- **Pré-cadastro:** `R__pre_cadastro_frutas_verduras.sql` (5 categorias, 69 produtos) é migration repetível: roda na 1ª subida em produção e só repete se o arquivo mudar; é idempotente. Para não carregar: `FLYWAY_LOCATIONS=db/migration` no `.env`. Em dev quem carrega é a classe `PreCadastro` (e o botão **📥 Importar frutas e verduras** na tela Produtos). Manual: `database/aplicar_sql_local.sh|.bat`. A lista existe em dois lugares (o `R__...sql` e `PreCadastro.java`).
+- **Contorno de emergência:** `DB_SCHEMA_MODE=update` no `.env` deixa o Hibernate ajustar o schema (não use em produção).
+- ⚠ Conferido contra um PostgreSQL de verdade (PGlite) e contra as entidades, mas **ainda não executado pelo Flyway/Maven nem no H2 reais** (sem acesso ao Maven aqui). Pontos a observar na 1ª subida: o H2 compartilhado com `AUTO_SERVER` e o Flyway lendo `V1`…`V12` da mesma pasta.
 
 ## Modal de pagamento — atalhos
 `F1` PIX · `F2` Dinheiro · `F3` Crédito · `F4` Débito · `F5` Vale-alimentação · `F6` Vale-refeição (ou as teclas `1`–`6`) · `F7` valor exato · `F8`/`F9` notas sugeridas · `Enter` confirma · `Esc` volta.
@@ -319,6 +346,7 @@ Pasta **`backup/`** (só precisa do Node.js): `backup.bat` / `./backup.sh` gera 
 - **NFC-e real**: emissor SEFAZ-RS implementado (seção *NFC-e e Nota Fiscal Gaúcha*), mas **ainda não homologado** com certificado e SEFAZ reais; falta validar regime tributário/CFOP com o contador e o A3.
 - **TEF real**: trocar `TEF_PROVIDER=simulador` pelo provedor contratado (CliSiTef/PayGo) e homologar; vales (Alelo, Ticket, Pluxee, VR...) estão lançados manualmente, sem autorização online.
 - **PIX real**: `PIX_PROVIDER=EFI` (ou ITAU, BRADESCO, SICOOB, SICREDI) com as variáveis `PIX_<PROVEDOR>_*`, o certificado do provedor e `FRUTEIRA_PIX_WEBHOOK_SEGREDO`; MERCADO_PAGO e ASAAS usam as variáveis `PIX_MERCADO_PAGO_*` / `PIX_ASAAS_*`.
+- **Migrations Flyway** (só no retaguarda-service; seção *Banco de dados*): conferidas contra PostgreSQL (PGlite) e as `@Entity`, mas nunca executadas pelo Flyway/Maven nem no H2 reais; valide na primeira subida (dev e produção).
 - Trocar as senhas temporárias do Keycloak (`trocar123`) e definir `TEF_TOKEN` igual nos caixas.
 - Testes automatizados existem só no front (24); faltam testes dos serviços Java.
 

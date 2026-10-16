@@ -6,7 +6,7 @@
 #     USE_NGINX=true  -> HTTPS com nginx nos domínios do .env (ver ssl.sh)
 set -u
 cd "$(dirname "$0")"
-mkdir -p logs; PIDS=()
+mkdir -p logs data; PIDS=()
 
 [ -f .env ] || { echo "❌ Arquivo .env não encontrado (copie de .env.example)"; exit 1; }
 set -a; . <(tr -d '\r' < .env); set +a
@@ -79,7 +79,49 @@ if [ "$APP_ENV" = producao ]; then
   aguardar keycloak 8180
 fi
 
-for s in catalogo-service:8081 estoque-service:8082 vendas-service:8083 retaguarda-service:8084 tef-agent:8090; do
+# Portas do sistema: 4 serviços, agente TEF e front. Processo antigo (execução anterior que não foi encerrada) nelas faz o serviço novo
+# falhar com "porta em uso" e o front responder 500. Antes de subir, quem estiver ESCUTANDO nelas é encerrado.
+# (PostgreSQL/Keycloak/nginx são do Docker e não entram aqui.) Para desligar: LIBERAR_PORTAS=false no .env.
+PORTAS_APP=(8081 8082 8083 8084 8090 5173)
+pids_na_porta() { # PIDs que escutam na porta $1
+  if command -v lsof >/dev/null 2>&1; then lsof -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null
+  elif command -v fuser >/dev/null 2>&1; then fuser "$1"/tcp 2>/dev/null | tr -s ' ' '\n' | grep -E '^[0-9]+$'
+  elif command -v ss >/dev/null 2>&1; then ss -ltnp "sport = :$1" 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2
+  elif command -v netstat >/dev/null 2>&1; then netstat -ano 2>/dev/null | tr -d '\r' | awk -v p=":$1" '$1=="TCP" && $2 ~ p"$" && $4=="LISTENING" {print $5}'   # Git Bash (Windows)
+  fi | sort -u
+}
+matar_pid() { # $1=pid: pede para encerrar e, se não sair em 5 s, força
+  local pid=$1 i
+  if command -v taskkill >/dev/null 2>&1 && ! command -v lsof >/dev/null 2>&1; then taskkill //PID "$pid" //T //F >/dev/null 2>&1; return; fi
+  kill "$pid" 2>/dev/null
+  for i in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$pid" 2>/dev/null || return 0; sleep 0.5; done
+  kill -9 "$pid" 2>/dev/null; sleep 0.5
+}
+liberar_portas() {
+  [ "${LIBERAR_PORTAS:-true}" = false ] && { echo "ℹ LIBERAR_PORTAS=false: portas ocupadas não serão liberadas."; return; }
+  local p pid pai nome ocupadas=0
+  for p in "${PORTAS_APP[@]}"; do
+    for pid in $(pids_na_porta "$p"); do
+      [ "$pid" = "$$" ] && continue
+      nome=$(ps -o args= -p "$pid" 2>/dev/null | cut -c1-70); [ -n "$nome" ] || nome=$(ps -o comm= -p "$pid" 2>/dev/null)
+      echo "⚠ Porta $p em uso pelo processo $pid (${nome:-?}): encerrando..."
+      pai=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+      matar_pid "$pid"
+      # o "mvn quarkus:dev"/"npm run dev" que gerou o processo também sai (senão ele pode subir de novo)
+      case "$(ps -o comm= -p "${pai:-0}" 2>/dev/null)" in mvn|java|npm|node|npx) [ "$pai" != "$$" ] && matar_pid "$pai";; esac
+    done
+  done
+  for p in "${PORTAS_APP[@]}"; do
+    [ -n "$(pids_na_porta "$p")" ] && { echo "❌ Não consegui liberar a porta $p (processo $(pids_na_porta "$p" | head -1)). Encerre-o manualmente e rode de novo."; ocupadas=1; }
+  done
+  [ "$ocupadas" = 1 ] && exit 1
+  return 0
+}
+
+liberar_portas
+
+# retaguarda PRIMEIRO: é o dono do Flyway (cria/atualiza o banco); os outros só validam o schema
+for s in retaguarda-service:8084 catalogo-service:8081 estoque-service:8082 vendas-service:8083 tef-agent:8090; do
   nome=${s%%:*}; porta=${s##*:}
   echo "Iniciando $nome..."
   if [ "$APP_ENV" = producao ]; then

@@ -1,0 +1,42 @@
+-- catalogo-service: completa bancos criados ANTES do Flyway (quando o Hibernate ajustava o schema sozinho).
+-- Se alguma coluna ainda não existir lá, ela é adicionada; num banco novo, nada muda (todas já existem pela migration de schema inicial).
+
+ALTER TABLE Categoria ADD COLUMN IF NOT EXISTS nome varchar(255);
+ALTER TABLE Categoria ADD COLUMN IF NOT EXISTS ordem integer;
+ALTER TABLE Categoria ADD COLUMN IF NOT EXISTS ativo boolean DEFAULT true;
+ALTER TABLE NcmExecucao ADD COLUMN IF NOT EXISTS origem varchar(255);
+ALTER TABLE NcmExecucao ADD COLUMN IF NOT EXISTS inicio timestamp(6);
+ALTER TABLE NcmExecucao ADD COLUMN IF NOT EXISTS fim timestamp(6);
+ALTER TABLE NcmExecucao ADD COLUMN IF NOT EXISTS total integer DEFAULT 0 NOT NULL;
+ALTER TABLE NcmExecucao ADD COLUMN IF NOT EXISTS validos integer DEFAULT 0 NOT NULL;
+ALTER TABLE NcmExecucao ADD COLUMN IF NOT EXISTS invalidos integer DEFAULT 0 NOT NULL;
+ALTER TABLE NcmExecucao ADD COLUMN IF NOT EXISTS vencidos integer DEFAULT 0 NOT NULL;
+ALTER TABLE NcmExecucao ADD COLUMN IF NOT EXISTS ausentes integer DEFAULT 0 NOT NULL;
+ALTER TABLE NcmExecucao ADD COLUMN IF NOT EXISTS naoVerificados integer DEFAULT 0 NOT NULL;
+ALTER TABLE NcmExecucao ADD COLUMN IF NOT EXISTS normalizados integer DEFAULT 0 NOT NULL;
+ALTER TABLE NcmExecucao ADD COLUMN IF NOT EXISTS erro varchar(500);
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS nome varchar(255);
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS unidade varchar(255);
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS precoVarejo numeric(38,2);
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS precoAtacado numeric(38,2);
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS plu integer;
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS codigoBarras varchar(255);
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS imagem varchar(60);
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS atalho varchar(1);
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS categoria varchar(255);
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS fotoUrl varchar(255);
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS ncm varchar(255);
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS ncmStatus varchar(20);
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS ncmDescricao varchar(500);
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS ncmFonte varchar(20);
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS ncmFim date;
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS ncmVerificadoEm timestamp(6);
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS taxaPerdaPct numeric(38,2);
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS custoMedio numeric(38,2);
+ALTER TABLE Produto ADD COLUMN IF NOT EXISTS ativo boolean DEFAULT FALSE NOT NULL;
+ALTER TABLE Promocao ADD COLUMN IF NOT EXISTS produtoId bigint;
+ALTER TABLE Promocao ADD COLUMN IF NOT EXISTS tipo varchar(255);
+ALTER TABLE Promocao ADD COLUMN IF NOT EXISTS valor numeric(38,2);
+ALTER TABLE Promocao ADD COLUMN IF NOT EXISTS inicio date;
+ALTER TABLE Promocao ADD COLUMN IF NOT EXISTS fim date;
+ALTER TABLE Promocao ADD COLUMN IF NOT EXISTS ativo boolean DEFAULT true;

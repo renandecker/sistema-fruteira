@@ -13,15 +13,27 @@ echo Ambiente: %APP_ENV%  ^(nginx/HTTPS: %USE_NGINX%^)
 for %%C in (java mvn node npm) do (
   where %%C >nul 2>nul || ( echo [ERRO] %%C nao encontrado no PATH & pause & exit /b 1 )
 )
+if /i "%LIBERAR_PORTAS%"=="false" goto sem_liberar
+echo Liberando as portas do sistema ^(8081 8082 8083 8084 8090 5173^)...
+for %%P in (8081 8082 8083 8084 8090 5173) do (
+  for /f "tokens=5" %%I in ('netstat -ano ^| findstr /R /C:":%%P .*LISTENING"') do (
+    echo   Porta %%P em uso pelo PID %%I: encerrando...
+    taskkill /PID %%I /T /F >nul 2>nul
+  )
+)
+:sem_liberar
 if /i "%APP_ENV%"=="producao" goto producao
 
 :dev
+if not exist "%~dp0data" mkdir "%~dp0data"
 echo Iniciando microsservicos ^(desenvolvimento^)...
+rem retaguarda PRIMEIRO: e o dono do Flyway (cria/atualiza o banco); os outros so validam o schema
+start "retaguarda-service :8084" cmd /k "cd /d %~dp0retaguarda-service && mvn quarkus:dev -Ddebug=false"
+echo Aguardando o retaguarda-service criar/atualizar o banco ^(Flyway^)...
+powershell -NoProfile -Command "for($i=0;$i -lt 90;$i++){ try{ (New-Object Net.Sockets.TcpClient('127.0.0.1',8084)).Close(); exit 0 }catch{ Start-Sleep 2 } }; exit 1" || echo [AVISO] retaguarda-service nao respondeu em 3 min ^(veja a janela dele^)
 start "catalogo-service :8081" cmd /k "cd /d %~dp0catalogo-service && mvn quarkus:dev -Ddebug=false"
-timeout /t 15 /nobreak >nul
 start "estoque-service :8082"  cmd /k "cd /d %~dp0estoque-service && mvn quarkus:dev -Ddebug=false"
 start "vendas-service :8083"   cmd /k "cd /d %~dp0vendas-service && mvn quarkus:dev -Ddebug=false"
-start "retaguarda-service :8084" cmd /k "cd /d %~dp0retaguarda-service && mvn quarkus:dev -Ddebug=false"
 start "tef-agent :8090" cmd /k "cd /d %~dp0tef-agent && mvn quarkus:dev -Ddebug=false"
 if not exist "%~dp0pdv-web\node_modules" ( pushd pdv-web & call npm install & popd )
 start "pdv-web :5173" cmd /k "cd /d %~dp0pdv-web && npm run dev -- --host"
@@ -53,9 +65,14 @@ echo Subindo PostgreSQL e Keycloak...
 docker compose -f docker-compose.prod.yml %PERFIL% up -d || ( pause & exit /b 1 )
 timeout /t 30 /nobreak >nul
 echo Compilando e iniciando microsservicos ^(producao^)...
-for %%S in (catalogo-service:8081 estoque-service:8082 vendas-service:8083 retaguarda-service:8084 tef-agent:8090) do (
+rem retaguarda PRIMEIRO (dono do Flyway): os outros so sobem depois que ele responder
+for %%S in (retaguarda-service:8084 catalogo-service:8081 estoque-service:8082 vendas-service:8083 tef-agent:8090) do (
   for /f "tokens=1,2 delims=:" %%N in ("%%S") do (
     start "%%N :%%O" cmd /k "cd /d %~dp0%%N && mvn -q package -DskipTests && java -jar target\quarkus-app\quarkus-run.jar"
+    if "%%N"=="retaguarda-service" (
+      echo Aguardando o retaguarda-service criar/atualizar o banco ^(Flyway^)...
+      powershell -NoProfile -Command "for($i=0;$i -lt 90;$i++){ try{ (New-Object Net.Sockets.TcpClient('127.0.0.1',8084)).Close(); exit 0 }catch{ Start-Sleep 2 } }; exit 1" || echo [AVISO] retaguarda-service nao respondeu em 3 min ^(veja a janela dele^)
+    )
   )
 )
 if /i "%USE_NGINX%"=="true" goto abrir_https

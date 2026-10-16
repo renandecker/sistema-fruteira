@@ -49,8 +49,13 @@ if not exist logs mkdir logs
 echo Subindo PostgreSQL e Keycloak...
 docker compose -f docker-compose.prod.yml %PERFIL% up -d || ( pause & exit /b 1 )
 timeout /t 30 /nobreak >nul
-for %%S in (catalogo estoque vendas retaguarda tef-agent) do (
+rem retaguarda PRIMEIRO (dono do Flyway: cria/atualiza o banco); os outros so validam o schema
+for %%S in (retaguarda catalogo estoque vendas tef-agent) do (
   start "%%S" /min cmd /c "cd /d %~dp0servicos\%%S && java -Xmx384m -jar quarkus-run.jar > %~dp0logs\%%S.log 2>&1"
+  if "%%S"=="retaguarda" (
+    echo Aguardando o retaguarda criar/atualizar o banco ^(Flyway^)...
+    powershell -NoProfile -Command "for($i=0;$i -lt 90;$i++){ try{ (New-Object Net.Sockets.TcpClient('127.0.0.1',8084)).Close(); exit 0 }catch{ Start-Sleep 2 } }; exit 1" || echo [AVISO] retaguarda-service nao respondeu em 3 min ^(veja a janela dele^)
+  )
 )
 if /i not "%USE_NGINX%"=="true" start "web" /min cmd /c "node servidor-web.mjs 5173 > logs\web.log 2>&1"
 timeout /t 60 /nobreak >nul

@@ -47,7 +47,7 @@ sed 's#\./pdv-web/dist#./web#' docker-compose.prod.yml > "$DEST/docker-compose.p
 rm -rf "$DEST/keycloak" "$DEST/nginx/templates" "$DEST/nginx/snippets" "$DEST/database"
 mkdir -p "$DEST/nginx/certs" "$DEST/keycloak" "$DEST/database"
 cp -r keycloak/. "$DEST/keycloak/"; cp -r nginx/templates nginx/snippets "$DEST/nginx/"; touch "$DEST/nginx/certs/.gitkeep"
-cp database/pre_cadastro_frutas_verduras.sql "$DEST/database/"
+cp retaguarda-service/src/main/resources/db/pre-cadastro/R__pre_cadastro_frutas_verduras.sql "$DEST/database/pre_cadastro_frutas_verduras.sql"   # só para uso manual: os jars já levam as migrations (Flyway)
 cp producao-modelo/* "$DEST/"
 cp ssl.sh ssl.bat "$DEST/"
 mkdir -p "$DEST/backup/saida"; for f in backup/*.mjs backup/*.sh backup/*.bat backup/LEIA-ME.txt; do cp "$f" "$DEST/backup/"; done; [ -f "$DEST/backup/backup.env" ] || cp backup/backup.env "$DEST/backup/"   # rotina de backup (nunca sobrescreve backup.env)

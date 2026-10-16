@@ -1,17 +1,17 @@
 -- =====================================================================
 --  Pré-cadastro de frutas, legumes, verduras e temperos mais comuns
---  PostgreSQL — banco da aplicação (catalogo-service) — 69 produtos, 5 categorias
+--  PostgreSQL (PRODUÇÃO) — dados do catálogo, aplicados pelo retaguarda-service — 69 produtos, 5 categorias
 -- =====================================================================
---  COMO USAR
---    1) Suba o catalogo-service em produção ao menos uma vez (ele cria as tabelas).
---    2) Execute:
---         psql -h localhost -U postgres -d fruteira -f database/pre_cadastro_frutas_verduras.sql
---       ou, com o Docker de produção:
---         docker compose -f docker-compose.prod.yml exec -T postgres psql -U postgres -d fruteira < database/pre_cadastro_frutas_verduras.sql
+--  COMO RODA
+--    Migration REPETÍVEL do Flyway (prefixo R__): o retaguarda-service (dono do Flyway) a aplica sozinho ao subir em produção,
+--    depois das migrations V1, V2... (que criam as tabelas). Ela roda de novo SOMENTE quando este arquivo muda
+--    (ex.: você acrescentou mais frutas na lista abaixo), e é IDEMPOTENTE: ignora categoria/produto cujo nome já existe.
+--    Para NÃO carregar o pré-cadastro: FLYWAY_CATALOGO_LOCATIONS=db/migration no .env (antes da primeira subida).
+--    Manual (sem Flyway): database/aplicar_sql_local.sh | .bat
+--    Em desenvolvimento (H2) quem faz isso é a classe Java PreCadastro (mesma lista) — este arquivo usa recursos do PostgreSQL.
 --
 --  O QUE FAZ
 --    - Cria as categorias (aba do PDV) e os produtos com unidade, perda média, NCM sugerido e imagem do catálogo.
---    - É IDEMPOTENTE: pode rodar de novo; ignora categoria/produto cujo nome já existe (sem diferenciar maiúsculas).
 --    - O PLU recebe a ordem de popularidade (1 = Banana...). Se o PLU já estiver em uso, o produto fica sem PLU.
 --
 --  ATENÇÃO
@@ -20,10 +20,8 @@
 --    - Custo médio começa em 0 e é calculado nas entradas de estoque.
 --    - A coluna "imagem" usa as chaves do catálogo de imagens do cadastro de produtos.
 -- =====================================================================
-SET client_encoding = 'UTF8';
-BEGIN;
 
-CREATE TEMP TABLE pre_categoria (nome text, ordem int) ON COMMIT DROP;
+CREATE TEMP TABLE pre_categoria (nome text, ordem int);
 INSERT INTO pre_categoria (nome, ordem) VALUES
   ('Frutas', 1),
   ('Legumes', 2),
@@ -31,7 +29,7 @@ INSERT INTO pre_categoria (nome, ordem) VALUES
   ('Raízes e Tubérculos', 4),
   ('Temperos e Ervas', 5);
 
-CREATE TEMP TABLE pre_produto (ordem int, nome text, unidade text, categoria text, preco numeric(10,2), perda numeric(5,2), ncm text, imagem text) ON COMMIT DROP;
+CREATE TEMP TABLE pre_produto (ordem int, nome text, unidade text, categoria text, preco numeric(10,2), perda numeric(5,2), ncm text, imagem text);
 INSERT INTO pre_produto (ordem, nome, unidade, categoria, preco, perda, ncm, imagem) VALUES
   (1, 'Banana Prata', 'KG', 'Frutas', 7.90, 8, '08039000', 'banana'),
   (2, 'Tomate Longa Vida', 'KG', 'Legumes', 9.90, 10, '07020000', 'tomate'),
@@ -127,7 +125,5 @@ FROM pre_produto t
 WHERE NOT EXISTS (SELECT 1 FROM produto p WHERE lower(p.nome) = lower(t.nome))
 ORDER BY t.ordem;
 
-COMMIT;
-
--- Conferência
-SELECT categoria, count(*) AS produtos FROM produto WHERE ativo GROUP BY categoria ORDER BY categoria;
+DROP TABLE pre_produto;
+DROP TABLE pre_categoria;

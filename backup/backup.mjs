@@ -30,9 +30,11 @@ if (modo === 'prod') {
   }
 } else {
   const servs = fs.readdirSync(RAIZ).filter(d => d.endsWith('-service') && fs.existsSync(path.join(RAIZ, d, 'data')))
-  if (!servs.length) { avisos.push('Nenhuma pasta data/ dos serviços encontrada (o banco H2 nasce quando o serviço sobe pela primeira vez).'); log('  ⚠ nenhum banco H2 encontrado') }
+  const compartilhado = fs.existsSync(path.join(RAIZ, 'data'))   // H2 único dos 4 serviços (data/fruteira.mv.db na raiz)
+  if (compartilhado) copiar(path.join(RAIZ, 'data'), path.join('dados', '_raiz'), 'banco H2 compartilhado (data/)')
+  if (!servs.length && !compartilhado) { avisos.push('Nenhuma pasta data/ dos serviços encontrada (o banco H2 nasce quando o serviço sobe pela primeira vez).'); log('  ⚠ nenhum banco H2 encontrado') }
   for (const s of servs) copiar(path.join(RAIZ, s, 'data'), path.join('dados', s), `banco H2 de ${s}`)
-  if (servs.length) log('  ℹ Em desenvolvimento o ideal é parar os serviços (./parar.sh) antes: arquivo aberto pode sair inconsistente.')
+  if (servs.length || compartilhado) log('  ℹ Em desenvolvimento o ideal é parar os serviços (./parar.sh) antes: arquivo aberto pode sair inconsistente.')
 }
 // Configuração e segredos (precisam voltar numa restauração em servidor novo)
 if (envArq) copiar(envArq, 'config/.env', 'configuração (.env — contém senhas)')
