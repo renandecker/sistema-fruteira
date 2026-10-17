@@ -36,8 +36,18 @@ public interface PixConfig {
     interface Webhook {
         /** Segredo do webhook público (cabeçalho X-Webhook-Token ou ?token=). Obrigatório fora do simulador. */
         Optional<String> segredo();
-        /** URL pública que o gerente registra no provedor. */
+        /** URL pública fixa que o gerente registra no provedor (produção). Vazia = usa o Ngrok (veja {@link PixWebhook}). */
         Optional<String> url();
+        /** Ngrok: endereço do túnel (https://xxxx.ngrok-free.app ou domínio reservado). Vazio = descobre pelo agente local ({@link #ngrokApi()}). */
+        Optional<String> ngrokUrl();
+        /** API local do agente Ngrok que informa o endereço do túnel (http://127.0.0.1:4040/api/tunnels). Vazio ou "-" = não consulta. */
+        Optional<String> ngrokApi();
+        /** Caminho do webhook atrás do túnel. Padrão /pix/webhook (túnel direto na porta do vendas-service). */
+        Optional<String> ngrokCaminho();
+        /** Porta do vendas-service, para escolher o túnel certo na API do Ngrok (padrão 8083). */
+        Optional<Integer> ngrokPorta();
+        /** Registra o webhook no provedor sozinho ao subir o serviço (URL do Ngrok muda a cada início). Padrão false: sobrescreve o webhook da conta. */
+        @WithDefault("false") boolean autoRegistrar();
     }
     interface Simulador {
         /** Segundos até o "cliente" pagar sozinho; 0 = só pelo botão. */

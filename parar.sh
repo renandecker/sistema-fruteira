@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Para tudo caso o iniciar.sh tenha sido encerrado de forma abrupta.
 cd "$(dirname "$0")"
-for porta in 8081 8082 8083 8084 8090 5173; do
+PORTAS="8081 8082 8083 8084 8090 5173"
+grep -qiE '^USAR_NGROK=true' .env 2>/dev/null && PORTAS="$PORTAS 4040"   # agente do Ngrok iniciado pelo iniciar.sh
+for porta in $PORTAS; do
   pids=$(lsof -t -iTCP:$porta -sTCP:LISTEN 2>/dev/null || fuser $porta/tcp 2>/dev/null)
   for pid in $pids; do
     pai=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')

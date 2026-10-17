@@ -65,9 +65,61 @@ public class PixProvidersTeste {
     static boolean erro(Class<? extends Throwable> t, java.util.concurrent.Callable<?> r) { try { r.call(); return false; } catch (Throwable e) { return t.isInstance(e); } }
 
     public static void main(String[] a) throws Exception {
-        mercadoPago(); asaas(); sicoob(); efi();
+        mercadoPago(); asaas(); sicoob(); efi(); ngrok();
         System.out.println(ok + " ok, " + falhas + " falha(s)");
         if (falhas > 0) System.exit(1);
+    }
+
+    // ---------------------------------------------------------------- Ngrok (URL do webhook)
+    static void ngrok() throws Exception {
+        var tuneis = "{\"tunnels\":[{\"public_url\":\"http://abc.ngrok-free.app\",\"proto\":\"http\",\"config\":{\"addr\":\"http://localhost:8083\"}},"
+            + "{\"public_url\":\"https://abc.ngrok-free.app\",\"proto\":\"https\",\"config\":{\"addr\":\"http://localhost:8083\"}},"
+            + "{\"public_url\":\"https://outro.ngrok-free.app\",\"proto\":\"https\",\"config\":{\"addr\":\"http://localhost:5173\"}}]}";
+        confere("Ngrok: escolhe o https que aponta para a porta do vendas", "https://abc.ngrok-free.app".equals(PixWebhook.escolherTunel(M.readTree(tuneis), 8083)));
+        confere("Ngrok: outra porta escolhe o túnel dela", "https://outro.ngrok-free.app".equals(PixWebhook.escolherTunel(M.readTree(tuneis), 5173)));
+        confere("Ngrok: vários https e nenhum na porta = nenhum", PixWebhook.escolherTunel(M.readTree(tuneis), 9999) == null);
+        confere("Ngrok: um único https serve mesmo sem bater a porta", "https://so.ngrok-free.app".equals(PixWebhook.escolherTunel(M.readTree("{\"tunnels\":[{\"public_url\":\"https://so.ngrok-free.app\",\"config\":{\"addr\":\"http://localhost:1\"}}]}"), 8083)));
+        confere("Ngrok: sem túneis = nenhum", PixWebhook.escolherTunel(M.readTree("{\"tunnels\":[]}"), 8083) == null);
+        confere("montar: base + /pix/webhook + token", PixWebhook.montar("https://abc.ngrok-free.app/", "/pix/webhook", "s3gredo").equals("https://abc.ngrok-free.app/pix/webhook?token=s3gredo"));
+        confere("montar: token é codificado", PixWebhook.montar("https://x.io", "pix/webhook", "a b&c").equals("https://x.io/pix/webhook?token=a+b%26c"));
+        confere("montar: sem segredo, sem token", PixWebhook.montar("abc.ngrok-free.app", "/pix/webhook", "").equals("https://abc.ngrok-free.app/pix/webhook"));
+        confere("montar: caminho com ? usa &", PixWebhook.montar("https://x.io", "/a?b=1", "S").equals("https://x.io/a?b=1&token=S"));
+        confere("mascarar esconde o token", PixWebhook.mascarar("https://x.io/h?a=1&token=SEGREDO&b=2").equals("https://x.io/h?a=1&token=***&b=2"));
+
+        // ordem: URL fixa > NGROK_URL > agente local
+        Falso f = new Falso(); f.resp = r -> tuneis;
+        PixWebhook.esquecer();
+        Map<String, Object> v = new HashMap<>(Map.of("webhook.segredo", "SEG", "webhook.ngrokApi", f.url() + "/api/tunnels"));
+        var r = PixWebhook.resolver(config(v)).orElseThrow();
+        confere("resolver: detecta o túnel pelo agente local e põe o token", r.url().equals("https://abc.ngrok-free.app/pix/webhook?token=SEG") && r.origem().startsWith("Ngrok (detectado"));
+        confere("resolver: mascarada não vaza o segredo", !r.mascarada().contains("SEG"));
+        v.put("webhook.ngrokUrl", "https://fixo.ngrok-free.app");
+        r = PixWebhook.resolver(config(v)).orElseThrow();
+        confere("resolver: NGROK_URL vence a detecção", r.url().equals("https://fixo.ngrok-free.app/pix/webhook?token=SEG") && r.origem().equals("NGROK_URL"));
+        v.put("webhook.ngrokCaminho", "/api/vendas/pix/webhook");
+        confere("resolver: NGROK_CAMINHO (túnel pelo front/nginx)", PixWebhook.url(config(v)).orElse("").startsWith("https://fixo.ngrok-free.app/api/vendas/pix/webhook?token="));
+        v.put("webhook.url", "https://loja.com.br/api/vendas/pix/webhook?token=X");
+        r = PixWebhook.resolver(config(v)).orElseThrow();
+        confere("resolver: FRUTEIRA_PIX_WEBHOOK_URL vence tudo", r.url().equals("https://loja.com.br/api/vendas/pix/webhook?token=X") && r.origem().equals("FRUTEIRA_PIX_WEBHOOK_URL"));
+        PixWebhook.esquecer(); f.srv.stop(0);
+        confere("resolver: Ngrok fora do ar = sem URL (sem erro)", PixWebhook.resolver(config(new HashMap<>(Map.of("webhook.ngrokApi", f.url() + "/api/tunnels")))).isEmpty());
+        confere("resolver: nada configurado = vazio", PixWebhook.resolver(config(new HashMap<>())).isEmpty());
+        PixWebhook.esquecer();
+
+        // filtro do túnel: reconhece o host do Ngrok
+        PixConfig c = config(new HashMap<>(Map.of("webhook.ngrokUrl", "https://loja.reservado.com")));
+        confere("host: domínios do Ngrok", PixWebhook.ehHostDoTunel("abc.ngrok-free.app", c) && PixWebhook.ehHostDoTunel("ABC.NGROK.IO:443", c) && PixWebhook.ehHostDoTunel("x.ngrok-free.dev", c));
+        confere("host: domínio reservado de NGROK_URL", PixWebhook.ehHostDoTunel("loja.reservado.com", c));
+        confere("host: localhost e domínio próprio não são túnel", !PixWebhook.ehHostDoTunel("localhost", c) && !PixWebhook.ehHostDoTunel("loja.com.br", c) && !PixWebhook.ehHostDoTunel(null, c) && !PixWebhook.ehHostDoTunel("meungrok.app.com.br", c));
+
+        // Mercado Pago manda a URL do Ngrok em cada cobrança
+        Falso g = new Falso(); g.resp = q -> "{\"point_of_interaction\":{\"transaction_data\":{\"qr_code\":\"000201\",\"ticket_url\":\"u\"}},\"id\":1}";
+        var mp = monta(new MercadoPagoPixService(), new HashMap<>(Map.of("mercadoPago.baseUrl", g.url(), "mercadoPago.accessToken", "TOK", "mercadoPago.emailPagador", "a@b.com",
+            "webhook.ngrokUrl", "https://abc.ngrok-free.app", "webhook.segredo", "SEG")));
+        confere("MP: sem URL fixa, aceita o Ngrok como configuração válida", mp.problemasDeConfiguracao().isEmpty());
+        mp.criar("tx1", new BigDecimal("10.00"), 300, "t");
+        confere("MP: notification_url = URL do Ngrok com token", g.ultima().json().path("notification_url").asText().equals("https://abc.ngrok-free.app/pix/webhook?token=SEG"));
+        g.srv.stop(0);
     }
 
     // ---------------------------------------------------------------- Mercado Pago

@@ -19,7 +19,7 @@ public class PixResource {
     @Inject Auditor auditor;
     @Inject PixConfig config;
     private String segredo() { return config.webhook().segredo().orElse(""); }
-    private String webhookUrl() { return config.webhook().url().orElse(""); }
+    private String webhookUrl() { return PixWebhook.url(config).orElse(""); }
     private String chave() { return config.chave().orElse(""); }
 
     public record Nova(BigDecimal valor, String descricao, String terminal) {}
@@ -77,16 +77,19 @@ public class PixResource {
         String nome = config.provider().toUpperCase(); List<String> problemas; boolean simulador = false;
         try { PixProviderService s = pix.servico(); nome = s.provider().name(); simulador = s.provider() == PixProvider.SIMULADOR; problemas = s.problemasDeConfiguracao(); }
         catch (WebApplicationException e) { problemas = List.of(String.valueOf(e.getMessage())); }   // provedor inválido ou sem integração: mostra em vez de dar erro 500
-        return Map.of("provedor", nome, "chave", chave(), "webhookConfigurado", !webhookUrl().isBlank(), "simulador", simulador,
-                      "problemas", problemas, "pronto", problemas.isEmpty());
+        var url = PixWebhook.resolver(config);
+        return Map.of("provedor", nome, "chave", chave(), "webhookConfigurado", url.isPresent(), "webhookUrl", url.map(PixWebhook.Resolvida::mascarada).orElse(""),
+                      "webhookOrigem", url.map(PixWebhook.Resolvida::origem).orElse(""), "simulador", simulador, "problemas", problemas, "pronto", problemas.isEmpty());
     }
-    /** (gerente) Registra no PSP a URL do webhook definida em FRUTEIRA_PIX_WEBHOOK_URL. */
+    /** (gerente) Registra no PSP a URL do webhook: a de FRUTEIRA_PIX_WEBHOOK_URL ou, se vazia, a do túnel do Ngrok de agora. */
     @POST @Path("/webhook/registrar")
     public Map<String, Object> registrarWebhook() {
         if (!auditor.gerente()) throw new ForbiddenException("Somente o gerente pode registrar o webhook");
-        if (webhookUrl().isBlank()) throw Http.erro(422, "Defina FRUTEIRA_PIX_WEBHOOK_URL (https://seu-dominio/api/vendas/pix/webhook?token=SEGREDO)");
-        try { pix.servico().registrarWebhook(webhookUrl()); } catch (Exception e) { throw Http.erro(502, "O PSP não registrou o webhook: " + e.getMessage()); }
-        return Map.of("registrado", true);
+        PixWebhook.esquecer();   // pega o túnel de agora (no plano grátis o endereço do Ngrok muda a cada início)
+        var url = PixWebhook.resolver(config).orElseThrow(() -> Http.erro(422, "Sem URL de webhook: defina FRUTEIRA_PIX_WEBHOOK_URL (https://seu-dominio/api/vendas/pix/webhook?token=SEGREDO), "
+            + "ou use o Ngrok: inicie com USAR_NGROK=true (ou rode `ngrok http 8083`) / defina NGROK_URL"));
+        try { pix.servico().registrarWebhook(url.url()); } catch (Exception e) { throw Http.erro(502, "O PSP não registrou o webhook: " + PixWebhook.mascarar(String.valueOf(e.getMessage()))); }
+        return Map.of("registrado", true, "url", url.mascarada(), "origem", url.origem());
     }
     /** Só no simulador: faz de conta que o cliente pagou (o "PSP" chama o webhook). */
     @POST @Path("/simulador/cobrancas/{id}/pagar")

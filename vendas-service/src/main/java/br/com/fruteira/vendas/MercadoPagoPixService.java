@@ -20,7 +20,7 @@ import org.jboss.logging.Logger;
  * - O identificador do pagamento (id do MP) é guardado como "endToEndId" e é o que a devolução usa.
  * - O Pix do Mercado Pago dura no mínimo 30 minutos: o caixa expira antes (PIX_EXPIRACAO_SEG) e o sistema cancela a cobrança no MP.
  * - O webhook recebe só o id do pagamento ({"action":"payment.updated","data":{"id":"..."}}); consultamos o pagamento para confirmar.
- *   A URL (FRUTEIRA_PIX_WEBHOOK_URL, com ?token=) vai em cada cobrança como notification_url: não há "registrar webhook".
+ *   A URL (FRUTEIRA_PIX_WEBHOOK_URL ou a do Ngrok, com ?token=; veja PixWebhook) vai em cada cobrança como notification_url: não há "registrar webhook".
  * ATENÇÃO: escrito conforme a documentação e AINDA NÃO TESTADO contra a conta real — valide com as credenciais de teste.
  */
 @ApplicationScoped
@@ -37,7 +37,7 @@ public class MercadoPagoPixService extends ApiKeyPixService {
         List<String> l = new ArrayList<>();
         if (config.mercadoPago().accessToken().filter(s -> !s.isBlank()).isEmpty()) l.add("Informe PIX_MERCADO_PAGO_ACCESS_TOKEN (Access Token da aplicação)");
         if (config.mercadoPago().emailPagador().filter(s -> !s.isBlank()).isEmpty()) l.add("Informe PIX_MERCADO_PAGO_EMAIL_PAGADOR (e-mail genérico do pagador exigido pela API)");
-        if (config.webhook().url().filter(s -> !s.isBlank()).isEmpty()) l.add("Informe FRUTEIRA_PIX_WEBHOOK_URL (vai em cada cobrança; sem ela o pagamento só é percebido pela consulta a cada 10 s)");
+        if (PixWebhook.url(config).isEmpty()) l.add("Informe FRUTEIRA_PIX_WEBHOOK_URL ou use o Ngrok (NGROK_URL, ou deixe o Ngrok aberto na porta 8083). A URL vai em cada cobrança; sem ela o pagamento só é percebido pela consulta a cada 10 s");
         return l;
     }
 
@@ -54,7 +54,7 @@ public class MercadoPagoPixService extends ApiKeyPixService {
         corpo.put("payer", pagador);
         corpo.put("external_reference", txid);
         corpo.put("date_of_expiration", OffsetDateTime.now().plusSeconds(Math.max(expiracaoSeg, 1800)).format(DATA_MP));   // mínimo de 30 min no MP
-        config.webhook().url().filter(s -> !s.isBlank()).ifPresent(u -> corpo.put("notification_url", u));
+        PixWebhook.url(config).ifPresent(u -> corpo.put("notification_url", u));   // URL fixa ou do Ngrok (veja PixWebhook)
         JsonNode r = chamar("POST", "/v1/payments", corpo, Map.of("X-Idempotency-Key", txid));
         JsonNode dados = r.path("point_of_interaction").path("transaction_data");
         String copiaECola = dados.path("qr_code").asText("");

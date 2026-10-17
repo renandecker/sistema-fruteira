@@ -394,7 +394,7 @@ export function Perifericos() {
   const testarTef = () => { setTt({ carregando: true }); agente.status(f).then(r => setTt({ ok: true, ...r })).catch(e => setTt({ ok: false, erro: String(e.message || e) })) }
   const [px, setPx] = useState(null)
   const testarPix = () => { setPx({ carregando: true }); api('/api/vendas/pix/status').then(r => setPx({ ok: true, ...r })).catch(e => setPx({ ok: false, erro: String(e.message || e) })) }
-  const registrarWebhook = () => post('/api/vendas/pix/webhook/registrar').then(() => setPx({ ok: true, aviso: 'Webhook registrado no PSP ✔' })).catch(e => setPx({ ok: false, erro: String(e.message || e) || 'Somente o gerente pode registrar' }))
+  const registrarWebhook = () => post('/api/vendas/pix/webhook/registrar').then(r => setPx({ ok: true, aviso: `Webhook registrado no PSP ✔${r?.url ? ` — ${r.url}` : ''}${r?.origem ? ` (${r.origem})` : ''}` })).catch(e => setPx({ ok: false, erro: String(e.message || e) || 'Somente o gerente pode registrar' }))
   const s = k => e => { setF({ ...f, [k]: e.target.value }); setOk(false) }
   const preset = e => { const p = PRESETS[e.target.value]; if (p) { const { rot, ...c } = p; setF({ ...f, ...c }); setOk(false) } }
   const testar = async () => {
@@ -438,7 +438,7 @@ export function Perifericos() {
       {f.pix === 'psp' && <>
         <div><button className="btn sec" onClick={testarPix}>Testar Pix no servidor</button>{' '}<button className="btn sec" onClick={registrarWebhook}>Registrar webhook no PSP (gerente)</button>{' '}
           {px?.carregando && <span>consultando…</span>}
-          {px?.ok && !px.aviso && <span>✔ provedor <b>{px.provedor}</b>{px.chave ? ` · chave ${px.chave}` : ''} · webhook {px.webhookConfigurado ? 'configurado' : 'não configurado'}{px.simulador ? ' — SIMULADOR (não é Pix real)' : ''}</span>}
+          {px?.ok && !px.aviso && <span>✔ provedor <b>{px.provedor}</b>{px.chave ? ` · chave ${px.chave}` : ''} · webhook {px.webhookConfigurado ? 'configurado' : 'não configurado'}{px.webhookUrl ? ` (${px.webhookUrl} · ${px.webhookOrigem})` : ''}{px.simulador ? ' — SIMULADOR (não é Pix real)' : ''}</span>}
           {px?.ok && px.problemas?.length > 0 && <span style={{ color: 'var(--vermelho)' }}> ✖ Falta configurar: {px.problemas.join(' · ')}</span>}
           {px?.aviso && <span>{px.aviso}</span>}
           {px && px.ok === false && <span style={{ color: 'var(--vermelho)' }}>✖ {px.erro}</span>}</div>

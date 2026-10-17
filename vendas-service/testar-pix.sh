@@ -21,7 +21,7 @@ done
 if [ -z "$CP" ]; then echo "(pulando as integrações: Jackson não encontrado — defina JACKSON_DIR)"; exit 0; fi
 CP="${CP#:}"
 javac -encoding UTF-8 -cp "$CP" -d "$d/prov" $(find src/test/stubs -name '*.java') \
-  $B/PixProvider.java $B/PixStatus.java $B/PixUtil.java $B/PixConfig.java $B/PixProviderService.java $B/BacenPixService.java \
+  $B/PixProvider.java $B/PixStatus.java $B/PixUtil.java $B/PixConfig.java $B/PixWebhook.java $B/PixProviderService.java $B/BacenPixService.java \
   $B/EfiPixService.java $B/ItauPixService.java $B/BradescoPixService.java $B/SicoobPixService.java $B/SicrediPixService.java \
   $B/ApiKeyPixService.java $B/MercadoPagoPixService.java $B/AsaasPixService.java $T/PixProvidersTeste.java
 java -Dstdout.encoding=UTF-8 -cp "$d/prov:$CP" br.com.fruteira.vendas.PixProvidersTeste

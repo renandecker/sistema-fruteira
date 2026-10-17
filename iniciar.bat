@@ -14,14 +14,27 @@ for %%C in (java mvn node npm) do (
   where %%C >nul 2>nul || ( echo [ERRO] %%C nao encontrado no PATH & pause & exit /b 1 )
 )
 if /i "%LIBERAR_PORTAS%"=="false" goto sem_liberar
-echo Liberando as portas do sistema ^(8081 8082 8083 8084 8090 5173^)...
-for %%P in (8081 8082 8083 8084 8090 5173) do (
+set "PORTAS_APP=8081 8082 8083 8084 8090 5173"
+if /i "%USAR_NGROK%"=="true" set "PORTAS_APP=%PORTAS_APP% 4040"
+echo Liberando as portas do sistema ^(%PORTAS_APP%^)...
+for %%P in (%PORTAS_APP%) do (
   for /f "tokens=5" %%I in ('netstat -ano ^| findstr /R /C:":%%P .*LISTENING"') do (
     echo   Porta %%P em uso pelo PID %%I: encerrando...
     taskkill /PID %%I /T /F >nul 2>nul
   )
 )
 :sem_liberar
+rem Ngrok (opcional, USAR_NGROK=true): tunel HTTPS publico so para o webhook do Pix (porta 8083); o vendas-service descobre o endereco pela API local (4040)
+if /i not "%USAR_NGROK%"=="true" goto sem_ngrok
+where ngrok >nul 2>nul || ( echo [ERRO] USAR_NGROK=true, mas o ngrok nao esta no PATH ^(https://ngrok.com/download; depois: ngrok config add-authtoken SEU_TOKEN^) & pause & exit /b 1 )
+set "NGROK_API=http://127.0.0.1:4040/api/tunnels"
+set "NGROK_ARGS_BAT=http 8083"
+if not "%NGROK_DOMINIO%"=="" set "NGROK_ARGS_BAT=http 8083 --url=%NGROK_DOMINIO%"
+echo Iniciando o tunel Ngrok ^(porta 8083^)...
+start "ngrok :4040" cmd /k "ngrok %NGROK_ARGS_BAT% %NGROK_ARGS%"
+timeout /t 8 /nobreak >nul
+echo Endereco do tunel: http://127.0.0.1:4040 ^(painel do Ngrok^). Pix real: Configuracoes - PIX - Registrar webhook.
+:sem_ngrok
 if /i "%APP_ENV%"=="producao" goto producao
 
 :dev

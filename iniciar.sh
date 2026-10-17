@@ -62,12 +62,13 @@ if [ "$APP_ENV" = producao ]; then
   [ "$PIXP" = SIMULADOR ] && echo "ℹ Pix em modo SIMULADOR (PIX_PROVIDER=simulador): não é Pix real."
   if [ "$PIXP" != SIMULADOR ]; then
     case "$PIXP" in
-      MERCADO_PAGO) req="PIX_MERCADO_PAGO_ACCESS_TOKEN PIX_MERCADO_PAGO_EMAIL_PAGADOR FRUTEIRA_PIX_WEBHOOK_URL" ;;
+      MERCADO_PAGO) req="PIX_MERCADO_PAGO_ACCESS_TOKEN PIX_MERCADO_PAGO_EMAIL_PAGADOR" ;;
       ASAAS)        req="PIX_ASAAS_API_KEY PIX_ASAAS_CLIENTE_ID" ;;
       *)            req="PIX_${PIXP}_CLIENT_ID PIX_${PIXP}_CLIENT_SECRET PIX_${PIXP}_CERTIFICADO" ;;
     esac
     falta=""; for v in $req; do [ -z "${!v:-}" ] && falta="$falta $v"; done
     case "$PIXP" in MERCADO_PAGO|ASAAS) ;; *) k="PIX_${PIXP}_CHAVE"; [ -z "${PIX_CHAVE:-}" ] && [ -z "${!k:-}" ] && falta="$falta PIX_CHAVE" ;; esac
+    [ "$PIXP" = MERCADO_PAGO ] && [ -z "${FRUTEIRA_PIX_WEBHOOK_URL:-}" ] && [ -z "${NGROK_URL:-}" ] && [ "${USAR_NGROK:-false}" != true ] && falta="$falta FRUTEIRA_PIX_WEBHOOK_URL(ou USAR_NGROK=true/NGROK_URL)"
     [ -n "$falta" ] && { echo "❌ PIX_PROVIDER=$PIXP exige no .env:$falta"; exit 1; }
     c="PIX_${PIXP}_CERTIFICADO"; [ -n "${!c:-}" ] && [ ! -r "${!c}" ] && { echo "❌ Certificado do Pix não encontrado/legível: ${!c}"; exit 1; }
   fi
@@ -83,6 +84,7 @@ fi
 # falhar com "porta em uso" e o front responder 500. Antes de subir, quem estiver ESCUTANDO nelas é encerrado.
 # (PostgreSQL/Keycloak/nginx são do Docker e não entram aqui.) Para desligar: LIBERAR_PORTAS=false no .env.
 PORTAS_APP=(8081 8082 8083 8084 8090 5173)
+[ "${USAR_NGROK:-false}" = true ] && PORTAS_APP+=(4040)   # agente do Ngrok (painel/API local), que este script inicia
 pids_na_porta() { # PIDs que escutam na porta $1
   if command -v lsof >/dev/null 2>&1; then lsof -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null
   elif command -v fuser >/dev/null 2>&1; then fuser "$1"/tcp 2>/dev/null | tr -s ' ' '\n' | grep -E '^[0-9]+$'
@@ -119,6 +121,30 @@ liberar_portas() {
 }
 
 liberar_portas
+
+# Ngrok (opcional, USAR_NGROK=true): túnel HTTPS público só para o webhook do Pix (porta 8083). O endereço (muda a cada início no plano grátis,
+# a menos que NGROK_DOMINIO esteja definido) vai para o vendas-service em NGROK_URL e a URL do webhook é montada a partir dele.
+# Pelo túnel só o POST /pix/webhook responde (NgrokFilter); o restante da API continua fechado.
+if [ "${USAR_NGROK:-false}" = true ]; then
+  command -v ngrok >/dev/null || { echo "❌ USAR_NGROK=true, mas o 'ngrok' não está no PATH (https://ngrok.com/download e depois: ngrok config add-authtoken SEU_TOKEN, ou NGROK_AUTHTOKEN no .env)"; exit 1; }
+  nargs=(http 8083 --log=stdout); [ -n "${NGROK_DOMINIO:-}" ] && nargs+=(--url="$NGROK_DOMINIO")
+  echo "Iniciando o túnel Ngrok (porta 8083)..."
+  # shellcheck disable=SC2086
+  ngrok "${nargs[@]}" ${NGROK_ARGS:-} > logs/ngrok.log 2>&1 &
+  PIDS+=($!)
+  NGROK_DETECTADA=""
+  for i in $(seq 1 20); do
+    NGROK_DETECTADA=$(curl -s --noproxy "*" --max-time 2 http://127.0.0.1:4040/api/tunnels 2>/dev/null | grep -o '"public_url": *"https://[^"]*' | head -1 | cut -d'"' -f4)
+    [ -n "$NGROK_DETECTADA" ] && break; sleep 1
+  done
+  if [ -n "$NGROK_DETECTADA" ]; then
+    export NGROK_URL="$NGROK_DETECTADA"; export NGROK_API=http://127.0.0.1:4040/api/tunnels
+    echo "🌐 Ngrok no ar: $NGROK_DETECTADA  →  webhook do Pix: $NGROK_DETECTADA${NGROK_CAMINHO:-/pix/webhook}?token=***"
+    echo "   Pix real: registre essa URL no provedor (Configurações → PIX → Registrar webhook) ou use PIX_WEBHOOK_AUTO_REGISTRAR=true."
+  else
+    echo "⚠ O Ngrok não informou o endereço do túnel em 20 s — veja logs/ngrok.log (authtoken? domínio?). O Pix seguirá sem webhook (consulta a cada 10 s)."
+  fi
+fi
 
 # retaguarda PRIMEIRO: é o dono do Flyway (cria/atualiza o banco); os outros só validam o schema
 for s in retaguarda-service:8084 catalogo-service:8081 estoque-service:8082 vendas-service:8083 tef-agent:8090; do
