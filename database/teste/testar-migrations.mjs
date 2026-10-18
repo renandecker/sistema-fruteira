@@ -115,9 +115,9 @@ if (aplicou) {
 // ---------- 4) banco antigo: reaplicar e recompletar ----------
 if (aplicou) {
   confere(await aplicar(db), 'reaplicar as migrations num banco que já as tem (banco criado pelo Hibernate) falhou');
-  await db.exec('ALTER TABLE Produto DROP COLUMN atalho; ALTER TABLE Entities$Nota DROP COLUMN qrCode;');
+  await db.exec('ALTER TABLE Produto DROP COLUMN atalho; ALTER TABLE Nota DROP COLUMN qrCode;');
   for (const s of ['catalogo-service', 'retaguarda-service']) await db.exec(porServico[s].find((m) => m.desc.includes('completa_colunas')).sql);
-  const volt = await consulta(`select count(*)::int n from information_schema.columns where table_schema='public' and ((table_name='produto' and column_name='atalho') or (table_name='entities$nota' and column_name='qrcode'))`);
+  const volt = await consulta(`select count(*)::int n from information_schema.columns where table_schema='public' and ((table_name='produto' and column_name='atalho') or (table_name='nota' and column_name='qrcode'))`);
   confere(volt[0].n === 2, 'o V2 não recolocou colunas que faltavam num banco antigo');
 }
 

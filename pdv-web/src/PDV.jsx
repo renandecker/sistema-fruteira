@@ -14,6 +14,8 @@ import { mascaraCpf, statusCpf, somenteDigitos } from './cpf.js'
 import { montarEmissao, emitirNfce, corrigirCpfNfce } from './nfce.js'
 import { NfceAviso } from './Danfe.jsx'
 import { decodificarEtiqueta } from './etiqueta.js'
+import { situacaoCaderno, nivelAlerta, textoAlerta, motivoBloqueio } from './caderno.js'
+import { CadernoPainel } from './Caderno.jsx'
 
 const brl = n => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const dataCurta = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : ''
@@ -29,6 +31,13 @@ export default function PDV() {
   const [caixa, setCaixa] = useState(null); const [sangria, setSangria] = useState(false)
   const [nfceAviso, setNfceAviso] = useState(null)   // { nota, venda } — retorno da NFC-e logo após a venda
   const stCpf = statusCpf(cpf)
+  const [sitCad, setSitCad] = useState(null); const [painelCad, setPainelCad] = useState(false)   // situação do cliente no caderno (fiado)
+  const recarregarCad = () => situacaoCaderno(cpf).then(setSitCad).catch(() => setSitCad(null))
+  useEffect(() => {        // CPF completo e válido: consulta o caderno e avisa se o cliente está devendo
+    if (stCpf !== 'ok') { setSitCad(null); return }
+    let vivo = true; situacaoCaderno(cpf).then(x => vivo && setSitCad(x)).catch(() => vivo && setSitCad(null))
+    return () => { vivo = false }
+  }, [cpf, stCpf])
   const [msg, setMsg] = useState(''); const [aba, setAba] = useState(0); const [flash, setFlash] = useState(null); const [avisoPeso, setAvisoPeso] = useState(false)
   const balanca = useBalanca(); const fim = useRef(null); const campo = useRef(null); const bipCtx = useRef(null)
 
@@ -239,6 +248,7 @@ export default function PDV() {
       const v = await enviarVenda(venda); setMsg('Venda concluída ✔'); posVenda(v, venda.cpf); emitirNota(v, venda.cpf); carregar(); carregarCaixa()    // recarrega ranking e promoções
       if (cartoes.length) setTimeout(() => concluirTef(cartoes), 0)
     } catch (e) {
+      if (e instanceof TypeError && venda.pagamentos.some(p => p.meio === 'CADERNO')) return setMsg('Sem rede: venda no caderno precisa de conexão (o limite do cliente é conferido no servidor). Tente de novo ou escolha outra forma de pagamento.')
       if (e instanceof TypeError) { enfileirar(venda); setMsg('Sem rede: venda salva offline' + (cartoes.length ? ' (os cartões serão confirmados na reconciliação)' : '')) }
       else {   // venda recusada: o que já foi aprovado no cartão precisa ser DESFEITO
         const falhas = (await Promise.all(cartoes.map(p => desfazerTef({ tefId: p.tefId, requisicao: p.tef?.requisicao })))).filter(r => !r.ok).length
@@ -246,7 +256,7 @@ export default function PDV() {
         return setMsg(String(e) + (pagamentos.some(p => p.pixId) ? ' — o Pix já foi recebido e continua reservado: tente finalizar de novo (ou devolva em Transações PIX).' : '') + (cartoes.length ? (falhas ? ' — não foi possível desfazer algum cartão: veja Transações TEF.' : ' — os pagamentos em cartão foram desfeitos.') : ''))
       }
     }
-    setItens([]); setPagando(false); setCpf(''); focarCampo()
+    setItens([]); setPagando(false); setCpf(''); setSitCad(null); focarCampo()
   }
 
   return (
@@ -299,6 +309,8 @@ export default function PDV() {
         </div>
         {stCpf === 'invalido' && <small className="erro" role="alert">CPF inválido — confira os números</small>}
         {stCpf === 'incompleto' && <small className="eco">CPF incompleto</small>}
+        {sitCad && nivelAlerta(sitCad) !== 'ok' && <div className={`alerta-fiado ${nivelAlerta(sitCad) === 'atraso' ? 'atraso' : ''}`} role="alert"><span>📒 {textoAlerta(sitCad, brl)}</span><button className="btn sec" onClick={() => setPainelCad(true)}>Ver caderno</button></div>}
+        {sitCad && nivelAlerta(sitCad) === 'ok' && <small className="eco">📒 {sitCad.nome}: sem dívida no caderno · <a href="#caderno" onClick={e => { e.preventDefault(); setPainelCad(true) }}>abrir</a></small>}
         <ul>
           {itens.map((i, k) => <li key={i.uid} className={`${k === itens.length - 1 ? 'ultimo' : ''} ${i.promo ? 'item-promo' : ''}`}>
             <span>{i.nome} {i.promo && <span className="promo-tag">PROMO</span>}<br />
@@ -312,7 +324,8 @@ export default function PDV() {
         <button className="btn pagar" disabled={!itens.length} onClick={pagar}>Pagar (F2)</button>
       </aside>
       {sangria && <SangriaModal onFechar={() => { setSangria(false); focarCampo() }} onFeita={() => { setSangria(false); setMsg('Sangria registrada ✔'); carregarCaixa(); focarCampo() }} />}
-      {pagando && <Pagamento total={total} desconto={descontoTotal} onOk={finalizar} problemasNcm={problemasNcm} produtoIds={[...new Set(itens.map(i => i.produtoId))]} onCancel={() => { setPagando(false); focarCampo() }} />}
+      {painelCad && sitCad && <CadernoPainel sit={sitCad} onFechar={() => setPainelCad(false)} onAtualizar={recarregarCad} />}
+      {pagando && <Pagamento sitCad={sitCad} total={total} desconto={descontoTotal} onOk={finalizar} problemasNcm={problemasNcm} produtoIds={[...new Set(itens.map(i => i.produtoId))]} onCancel={() => { setPagando(false); focarCampo() }} />}
       {nfceAviso && <NfceAviso nota={nfceAviso.nota} itens={nfceAviso.venda.itens} pagamentos={nfceAviso.venda.pagamentos} produtos={produtos} onCorrigir={corrigirCpf} onFechar={() => { setNfceAviso(null); focarCampo() }} />}
     </div>)
 }
@@ -320,14 +333,15 @@ export default function PDV() {
 const MEIOS = [
   { id: 'PIX', rot: 'PIX', tecla: 'F1' }, { id: 'DINHEIRO', rot: 'Dinheiro', tecla: 'F2' }, { id: 'CREDITO', rot: 'Crédito', tecla: 'F3' },
   { id: 'DEBITO', rot: 'Débito', tecla: 'F4' }, { id: 'VALE_ALIMENTACAO', rot: 'Vale-alimentação', tecla: 'F5' }, { id: 'VALE_REFEICAO', rot: 'Vale-refeição', tecla: 'F6' },
+  { id: 'CADERNO', rot: 'Caderno (fiado)', tecla: 'F10' },
 ]
 const c2 = n => Math.round(n * 100), r2 = n => Math.round(n * 100) / 100
 const rotulo = id => MEIOS.find(m => m.id === id)?.rot ?? id
 
 /** Pagamento em UMA ou MAIS formas (ex.: R$ 20 no PIX + o restante em dinheiro). O troco só existe para dinheiro.
  *  Com TEF ligado, crédito/débito são cobrados na maquininha (agente TEF) e só entram se aprovados.
- *  Atalhos: F1–F6 (ou 1–6) forma · F7 restante · F8/F9 notas sugeridas · Enter adiciona/finaliza · Delete remove o último · Esc volta */
-function Pagamento({ total, desconto = 0, onOk, onCancel, problemasNcm = [], produtoIds = [] }) {
+ *  Atalhos: F1–F6 (ou 1–6) forma · F10 caderno (fiado) · F7 restante · F8/F9 notas sugeridas · Enter adiciona/finaliza · Delete remove o último · Esc volta */
+function Pagamento({ sitCad = null, total, desconto = 0, onOk, onCancel, problemasNcm = [], produtoIds = [] }) {
   const usaTef = tefAtivo(); const usaPix = pixAtivo()
   const [pags, setPags] = useState([]); const [meio, setMeio] = useState('PIX'); const [valor, setValor] = useState(total)
   const [operadoras, setOperadoras] = useState({}); const [parcelas, setParcelas] = useState(1); const [tefTx, setTefTx] = useState(null); const [pixTx, setPixTx] = useState(null); const [aviso, setAviso] = useState('')
@@ -347,7 +361,7 @@ function Pagamento({ total, desconto = 0, onOk, onCancel, problemasNcm = [], pro
   const pode = completo || (v > 0 && (meio === 'DINHEIRO' || c2(v) <= c2(restante)))
   const sugestoes = [...new Set([Math.ceil(restante / 10) * 10, Math.ceil(restante / 50) * 50, Math.ceil(restante / 100) * 100])].filter(x => x > restante).slice(0, 2)
 
-  const escolher = id => { setMeio(id); setAviso(''); if (id !== 'DINHEIRO' && v > restante) setValor(restante) }   // só dinheiro pode passar do restante (troco)
+  const escolher = id => { setMeio(id); setAviso(''); if (id === 'CADERNO' || (id !== 'DINHEIRO' && v > restante)) setValor(restante) }   // caderno: o que falta pagar vai inteiro para a dívida (pagar depois); só dinheiro pode passar do restante (troco)   // só dinheiro pode passar do restante (troco)
   const refazer = lista => { setPags(lista); setValor((c2(total) - lista.reduce((s, p) => s + c2(p.valor), 0)) / 100) }
   const adicionar = (novo, fecha) => {
     if (fecha) { enviado.current = true; setPags([...pags, novo]); Promise.resolve(onOk([...pags, novo])).finally(() => { enviado.current = false }) }   // trava só enquanto a venda é enviada   // dinheiro: grava o valor APLICADO (sem troco)
@@ -357,6 +371,7 @@ function Pagamento({ total, desconto = 0, onOk, onCancel, problemasNcm = [], pro
     if (!pode || enviado.current || tefTx || pixTx) return
     if (completo) { enviado.current = true; Promise.resolve(onOk(pags)).finally(() => { enviado.current = false }); return }
     const novo = { meio, valor: r2(aplicado), ...(operadora && (vale || (cartao && !usaTef)) ? { operadora } : {}) }
+    if (meio === 'CADERNO') { const m = motivoBloqueio(sitCad, aplicado, brl); if (m) { setAviso(m); return } }
     if (vale && !operadora) { setAviso('Escolha a operadora do cartão (Alelo, Ticket, Pluxee, VR…).'); return }
     if (usaTef && cartao && problemasNcm.length) { setAviso(`NCM ausente ou inválido em: ${problemasNcm.join(', ')}. Corrija em Produtos e preços antes de cobrar no cartão: a NFC-e exige NCM válido e vigente em todos os itens.`); return }
     if (usaTef && cartao) { setAviso(''); setTefTx({ meio, valor: novo.valor, parcelas: meio === 'CREDITO' ? parcelas : 1, cobre }); return }   // cobra na maquininha
@@ -406,11 +421,11 @@ function Pagamento({ total, desconto = 0, onOk, onCancel, problemasNcm = [], pro
       if (e.key === 'Escape') { e.preventDefault(); sair(); return }
       if (e.key === 'Enter') { e.preventDefault(); confirmar(); return }
       if (!emInput && e.key === 'Delete' && pags.length) { e.preventDefault(); removerPag(pags.length - 1); return }
-      if (!emInput && /^[1-6]$/.test(e.key)) escolher(MEIOS[+e.key - 1].id)
+      if (!emInput && /^[1-7]$/.test(e.key)) escolher(MEIOS[+e.key - 1].id)
     }
     window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h)
   })
-  const rotBotao = completo ? 'Finalizar venda' : usaPix && meio === 'PIX' ? `Gerar Pix de ${brl(aplicado)}` : usaTef && cartao ? `Cobrar ${brl(aplicado)} no cartão` : cobre ? 'Finalizar venda' : 'Adicionar pagamento'
+  const rotBotao = completo ? 'Finalizar venda' : meio === 'CADERNO' && cobre ? `Finalizar e anotar ${brl(aplicado)} no caderno` : usaPix && meio === 'PIX' ? `Gerar Pix de ${brl(aplicado)}` : usaTef && cartao ? `Cobrar ${brl(aplicado)} no cartão` : cobre ? 'Finalizar venda' : 'Adicionar pagamento'
   return (
     <div className="modal" role="dialog" aria-label="Pagamento">
       <div className="pag">
@@ -420,10 +435,12 @@ function Pagamento({ total, desconto = 0, onOk, onCancel, problemasNcm = [], pro
         {pags.length > 0 && <ul className="pags">{pags.map((p, k) => <li key={k}><span>{rotulo(p.meio)}{p.operadora && <small> · {nomeCartao(p.operadora)}</small>}{p.tef && <small> · {p.tef.bandeira} · NSU {p.tef.nsu} · aut {p.tef.autorizacao}</small>}{p.pixId && <small> · Pix recebido · {p.pix?.endToEndId}</small>}</span><b>{brl(p.valor)}</b>
           <button className="x-item" title="Remover este pagamento" onClick={() => removerPag(k)}>×</button></li>)}</ul>}
         <div className="falta">Pago: {brl(pago / 100)} · <b>Falta: {brl(restante)}</b></div>
+        {meio === 'CADERNO' && aplicado > 0 && <div className="falta" role="status">📒 No caderno, para pagar depois: <b>{brl(aplicado)}</b>{c2(aplicado) < c2(restante) ? ` · ainda falta ${brl(restante - aplicado)} em outra forma` : ' · a venda fecha sem receber nada agora'}</div>}
         <div className="meios">{MEIOS.map(m => <button key={m.id} className={m.id === meio ? 'on' : ''} onClick={() => escolher(m.id)}><kbd>{m.tecla}</kbd> {m.rot}</button>)}</div>
         {meio === 'PIX' && !usaPix && <div style={{ textAlign: 'center', margin: 8 }}>
           {/* Troque o payload pelo "copia e cola" gerado pelo pagamento-service (PIX dinâmico via PSP) */}
           <QRCodeSVG value={`PIX-DEMO|valor=${aplicado.toFixed(2)}`} size={150} fgColor="#066b43" /><p style={{ margin: 4 }}>PIX de {brl(aplicado)} — aguardando confirmação…</p></div>}
+        {meio === 'CADERNO' && <div className="msg" style={{ margin: '6px 0' }}>{sitCad ? `📒 Fica anotado no caderno de ${sitCad.nome}: deve ${brl(sitCad.saldo)}, pode dever até ${brl(sitCad.limite)} (cabem ${brl(sitCad.disponivel)}).` : '📒 Para usar o caderno informe, na tela de venda, o CPF de um cliente cadastrado.'}</div>}
         {(vale || (cartao && !usaTef)) && <div className="operadoras" role="group" aria-label="Operadora do cartão">
           <small>{vale ? 'Operadora do cartão:' : 'Rede (opcional):'}</small>
           {!vale && <button className={!operadora ? 'on' : ''} onClick={() => escolherOperadora('')}>Outra</button>}
@@ -441,7 +458,7 @@ function Pagamento({ total, desconto = 0, onOk, onCancel, problemasNcm = [], pro
         {aviso && <div className="msg" role="alert" style={{ margin: '0 0 8px' }}>{aviso}</div>}
         <div><button className="btn" disabled={!pode || !!tefTx || !!pixTx} onClick={confirmar}>{rotBotao} <kbd>Enter</kbd></button>{' '}
           <button className="btn sec" onClick={sair}>Voltar <kbd>Esc</kbd></button></div>
-        <small style={{ display: 'block', marginTop: 8, opacity: .7 }}>F1–F6 ou 1–6 escolhem a forma · divida o valor em quantas formas precisar · Delete remove o último</small>
+        <small style={{ display: 'block', marginTop: 8, opacity: .7 }}>F1–F6, F10 (caderno) ou 1–7 escolhem a forma · divida o valor em quantas formas precisar · Delete remove o último</small>
       </div>
       {pixTx && <PixModal valor={pixTx.valor} onPago={pixPago} onFechar={() => setPixTx(null)} />}
       {tefTx && <TefModal valor={tefTx.valor} meio={tefTx.meio} parcelas={tefTx.parcelas} produtoIds={produtoIds} onAprovada={aprovadoNoTef} onManual={manual} onFechar={() => setTefTx(null)} />}

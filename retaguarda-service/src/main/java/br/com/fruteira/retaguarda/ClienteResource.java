@@ -42,6 +42,16 @@ public class ClienteResource {
         auditor.registrar("EDICAO", "Cliente", c.id, "Resgate de cashback de R$ " + valor + " — " + c.nome, null, null);
         return c;
     }
+    public record LimiteIn(BigDecimal limite) {}
+    /** Limite do caderno (fiado) do cliente: só o gerente altera. null = limite padrão do sistema; 0 = não pode fiar. */
+    @PUT @Path("/{id}/limite-caderno") @Transactional public Cliente limiteCaderno(@PathParam("id") Long id, LimiteIn in) {
+        if (!auditor.ehGerente()) throw new ForbiddenException("Somente o gerente altera o limite do caderno");
+        if (in != null && in.limite() != null && (in.limite().signum() < 0 || in.limite().compareTo(new BigDecimal("100000")) > 0)) throw new WebApplicationException("Limite inválido", 422);
+        Cliente c = porId(id); BigDecimal antes = c.limiteCaderno;
+        c.limiteCaderno = in == null || in.limite() == null ? null : in.limite().setScale(2, RoundingMode.HALF_UP);
+        auditor.registrar("EDICAO", "Cliente", id, "Limite do caderno de " + c.nome + ": " + (antes == null ? "padrão" : "R$ " + antes) + " → " + (c.limiteCaderno == null ? "padrão" : "R$ " + c.limiteCaderno), null, null);
+        return c;
+    }
     @DELETE @Path("/{id}") @Transactional public Cliente desativar(@PathParam("id") Long id) {
         Cliente c = porId(id);
         if (Boolean.FALSE.equals(c.ativo)) return c;

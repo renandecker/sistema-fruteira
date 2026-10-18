@@ -17,6 +17,7 @@ import org.eclipse.microprofile.rest.client.inject.RestClient;
 public class VendaResource {
     @Inject @RestClient Clients.Catalogo catalogo;
     @Inject @RestClient Clients.Estoque estoque;
+    @Inject @RestClient Clients.Caderno caderno;
     @Inject Auditor auditor;
     @ConfigProperty(name = "fruteira.gerente.pin") String pinGerente;
     /** true = crédito/débito só pode ser pago com transação TEF aprovada */
@@ -53,9 +54,24 @@ public class VendaResource {
             v.desconto = v.desconto.add(i.descontoTotal);
             v.total = v.total.add(i.subtotal); v.itens.add(i);
         }
+        BigDecimal caderno_ = null;
         BigDecimal pago = BigDecimal.ZERO; List<TefTransacao> tefs = new ArrayList<>(); List<PixCobranca> pixs = new ArrayList<>();
         for (PagReq pr : req.pagamentos()) {
             Pagamento pg = new Pagamento(); pg.venda = v; pg.meio = pr.meio(); pg.valor = pr.valor();
+            if ("CADERNO".equals(pr.meio())) {                          // fiado: só para cliente cadastrado (CPF) e dentro do limite
+                if (caderno_ != null) throw Http.erro(422, "Use um único pagamento CADERNO por venda");
+                if (v.cpfCliente == null) throw Http.erro(422, "Para anotar no caderno informe o CPF do cliente");
+                caderno_ = pr.valor();
+                try {
+                    var sit = caderno.situacao(v.cpfCliente, 1);
+                    if (pr.valor().compareTo(sit.disponivel()) > 0)
+                        throw Http.erro(422, "Limite do caderno excedido: " + sit.nome() + " deve R$ " + sit.saldo() + " e pode dever até R$ " + sit.limite());
+                } catch (jakarta.ws.rs.ProcessingException ex) { throw Http.erro(503, "Caderno indisponível no momento (retaguarda fora do ar)");
+                } catch (WebApplicationException ex) {
+                    if (ex.getResponse().getStatus() == 404) throw Http.erro(422, "Cliente não cadastrado: cadastre o CPF em Clientes para usar o caderno");
+                    throw ex;
+                }
+            }
             if (Cartoes.beneficio(pr.meio())) {                        // vale: a operadora é obrigatória e precisa aceitar o saldo
                 if (!Cartoes.aceita(pr.operadora(), pr.meio())) throw Http.erro(422, "Informe uma operadora válida para " + pr.meio() + " (ex.: ALELO_ALIMENTACAO, TICKET, PLUXEE, VR)");
             } else if (pr.operadora() != null && !pr.operadora().isBlank() && !Cartoes.aceita(pr.operadora(), pr.meio()))
@@ -85,6 +101,11 @@ public class VendaResource {
         v.status = Venda.Status.PAGA; v.persist();
         tefs.forEach(t -> { t.vendaId = v.id; t.atualizadoEm = LocalDateTime.now(); });   // vincula o cartão à venda
         pixs.forEach(px -> px.vendaId = v.id);                                              // vincula o Pix à venda
+        if (caderno_ != null) {                                  // anota a dívida; se falhar a venda inteira volta atrás (transação)
+            try { caderno.lancar(new Clients.CadernoLanc(v.cpfCliente, caderno_, v.id, "Venda #" + v.id, v.usuario)); }
+            catch (jakarta.ws.rs.ProcessingException ex) { throw Http.erro(503, "Caderno indisponível (retaguarda fora do ar); venda não finalizada"); }
+            catch (WebApplicationException ex) { throw Http.erro(ex.getResponse().getStatus() >= 500 ? 503 : 422, "Não foi possível anotar no caderno (" + ex.getMessage() + "); venda não finalizada"); }
+        }
         v.itens.forEach(i -> estoque.baixa(new BaixaDTO(i.produtoId, i.quantidade, "VENDA", "venda " + v.id)));
         // auditoria da venda (best-effort: se a auditoria estiver fora do ar, a venda não é bloqueada)
         StringBuilder meios = new StringBuilder();
@@ -103,6 +124,8 @@ public class VendaResource {
         if (PixCobranca.count("vendaId = ?1 and status = ?2", id, "CONCLUIDA") > 0)
             throw Http.erro(409, "Venda paga com Pix: devolva o Pix na tela Transações PIX antes de cancelar a venda");
         Venda v = Venda.findById(id); v.status = Venda.Status.CANCELADA;
+        try { caderno.estornar(id); }                              // venda fiada: a dívida sai do caderno (sem dívida = nada a fazer)
+        catch (WebApplicationException | jakarta.ws.rs.ProcessingException ex) { throw Http.erro(503, "Não foi possível estornar a dívida do caderno; venda não cancelada"); }
         v.itens.forEach(i -> estoque.baixa(new BaixaDTO(i.produtoId, i.quantidade.negate(), "AJUSTE", "estorno venda " + id)));
         auditor.registrar("CANCELAMENTO", "Venda", id, "Venda #" + id + " cancelada (total R$ " + v.total + ")", null, null);
         return v;
@@ -130,6 +153,24 @@ public class VendaResource {
             for (Item i : v.itens) if (i.custoUnit != null) cmv = cmv.add(i.quantidade.multiply(i.custoUnit));
         }
         return new Resumo(rec, cmv.setScale(2, RoundingMode.HALF_UP), n);
+    }
+    /** Por cliente (CPF): quantas compras, quanto gastou, ticket médio e última compra. Só vendas PAGAS com CPF; período opcional (AAAA-MM-DD). */
+    public record ClienteCompras(String cpf, long compras, BigDecimal total, BigDecimal ticketMedio, LocalDateTime ultimaCompra, BigDecimal noCaderno) {}
+    @GET @Path("/relatorio/clientes") @Transactional
+    public List<ClienteCompras> relatorioClientes(@QueryParam("de") String de, @QueryParam("ate") String ate) {
+        LocalDateTime ini = de == null || de.isBlank() ? LocalDateTime.of(2000, 1, 1, 0, 0) : java.time.LocalDate.parse(de).atStartOfDay();
+        LocalDateTime fim = ate == null || ate.isBlank() ? LocalDateTime.now().plusDays(1) : java.time.LocalDate.parse(ate).plusDays(1).atStartOfDay();
+        List<Object[]> l = Venda.getEntityManager().createQuery(
+            "select v.cpfCliente, count(v), sum(v.total), max(v.data) from Venda v where v.status = :s and v.cpfCliente is not null and v.data >= :i and v.data < :f group by v.cpfCliente order by sum(v.total) desc", Object[].class)
+            .setParameter("s", Venda.Status.PAGA).setParameter("i", ini).setParameter("f", fim).getResultList();
+        Map<String, BigDecimal> fiado = new HashMap<>();
+        for (Object[] r : Venda.getEntityManager().createQuery(
+            "select v.cpfCliente, sum(p.valor) from PagamentoVenda p join p.venda v where p.meio = 'CADERNO' and v.status = :s and v.cpfCliente is not null and v.data >= :i and v.data < :f group by v.cpfCliente", Object[].class)
+            .setParameter("s", Venda.Status.PAGA).setParameter("i", ini).setParameter("f", fim).getResultList()) fiado.put((String) r[0], (BigDecimal) r[1]);
+        return l.stream().map(r -> {
+            long n = ((Number) r[1]).longValue(); BigDecimal t = ((BigDecimal) r[2]).setScale(2, RoundingMode.HALF_UP);
+            return new ClienteCompras((String) r[0], n, t, t.divide(BigDecimal.valueOf(Math.max(1, n)), 2, RoundingMode.HALF_UP), (LocalDateTime) r[3], fiado.getOrDefault((String) r[0], BigDecimal.ZERO));
+        }).toList();
     }
     /** Média de quantidade vendida por produto num dia da semana (1=seg ... 7=dom) — base da sugestão de compras */
     public record Media(Long produtoId, String nome, BigDecimal mediaQtd) {}

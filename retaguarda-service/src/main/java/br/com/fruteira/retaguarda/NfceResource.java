@@ -162,7 +162,7 @@ public class NfceResource {
     }
     private int proximoNumero() {
         return QuarkusTransaction.requiringNew().call(() -> {
-            // Panache resolve o nome da entidade interna (Entities$Nota); HQL escrito à mão ("from Nota") não encontra a classe aninhada
+            // Panache resolve o nome da entidade interna (entidade com nome explícito, ver Entities.java)
             Nota ultima = Nota.find("numero is not null order by numero desc").firstResult();
             return Math.max(ultima == null ? 1 : ultima.numero + 1, fiscal.numeroInicial());
         });

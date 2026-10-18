@@ -2,15 +2,15 @@
 -- Idempotente (IF NOT EXISTS): num banco que já foi criado pelo Hibernate (antes do Flyway) nada é recriado.
 -- SQL portátil: roda igual no H2 (desenvolvimento) e no PostgreSQL (produção). NUNCA edite uma migration já aplicada: crie a próxima (ver database/nova-migration.sh).
 
-CREATE SEQUENCE IF NOT EXISTS Entities$Fornecedor_SEQ START WITH 1 INCREMENT BY 50;
-CREATE SEQUENCE IF NOT EXISTS Entities$Cliente_SEQ START WITH 1 INCREMENT BY 50;
-CREATE SEQUENCE IF NOT EXISTS Entities$Cotacao_SEQ START WITH 1 INCREMENT BY 50;
-CREATE SEQUENCE IF NOT EXISTS Entities$Conta_SEQ START WITH 1 INCREMENT BY 50;
-CREATE SEQUENCE IF NOT EXISTS Entities$Nota_SEQ START WITH 1 INCREMENT BY 50;
-CREATE SEQUENCE IF NOT EXISTS Entities$Auditoria_SEQ START WITH 1 INCREMENT BY 50;
-CREATE SEQUENCE IF NOT EXISTS Entities$Usuario_SEQ START WITH 1 INCREMENT BY 50;
+CREATE SEQUENCE IF NOT EXISTS Fornecedor_SEQ START WITH 1 INCREMENT BY 50;
+CREATE SEQUENCE IF NOT EXISTS Cliente_SEQ START WITH 1 INCREMENT BY 50;
+CREATE SEQUENCE IF NOT EXISTS Cotacao_SEQ START WITH 1 INCREMENT BY 50;
+CREATE SEQUENCE IF NOT EXISTS Conta_SEQ START WITH 1 INCREMENT BY 50;
+CREATE SEQUENCE IF NOT EXISTS Nota_SEQ START WITH 1 INCREMENT BY 50;
+CREATE SEQUENCE IF NOT EXISTS Auditoria_SEQ START WITH 1 INCREMENT BY 50;
+CREATE SEQUENCE IF NOT EXISTS Usuario_SEQ START WITH 1 INCREMENT BY 50;
 
-CREATE TABLE IF NOT EXISTS Entities$Fornecedor (
+CREATE TABLE IF NOT EXISTS Fornecedor (
     id bigint NOT NULL,
     nome varchar(255),
     documento varchar(255),
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS Entities$Fornecedor (
     PRIMARY KEY (id)
 );
 
-CREATE TABLE IF NOT EXISTS Entities$Cliente (
+CREATE TABLE IF NOT EXISTS Cliente (
     id bigint NOT NULL,
     nome varchar(255),
     cpf varchar(255),
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS Entities$Cliente (
     CONSTRAINT uk_cliente_cpf UNIQUE (cpf)
 );
 
-CREATE TABLE IF NOT EXISTS Entities$Cotacao (
+CREATE TABLE IF NOT EXISTS Cotacao (
     id bigint NOT NULL,
     produtoNome varchar(255),
     fornecedor varchar(255),
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS Entities$Cotacao (
     PRIMARY KEY (id)
 );
 
-CREATE TABLE IF NOT EXISTS Entities$Conta (
+CREATE TABLE IF NOT EXISTS Conta (
     id bigint NOT NULL,
     tipo varchar(255),
     descricao varchar(255),
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS Entities$Conta (
     PRIMARY KEY (id)
 );
 
-CREATE TABLE IF NOT EXISTS Entities$Nota (
+CREATE TABLE IF NOT EXISTS Nota (
     id bigint NOT NULL,
     vendaId bigint,
     numero integer,
@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS Entities$Nota (
     PRIMARY KEY (id)
 );
 
-CREATE TABLE IF NOT EXISTS Entities$Auditoria (
+CREATE TABLE IF NOT EXISTS Auditoria (
     id bigint NOT NULL,
     data timestamp(6),
     usuario varchar(255),
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS Entities$Auditoria (
     PRIMARY KEY (id)
 );
 
-CREATE TABLE IF NOT EXISTS Entities$Usuario (
+CREATE TABLE IF NOT EXISTS Usuario (
     id bigint NOT NULL,
     nome varchar(255),
     login varchar(255),

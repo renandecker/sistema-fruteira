@@ -156,3 +156,14 @@ kbd{background:#0003;border-radius:4px;padding:0 5px;font-size:11px;font-family:
 .nfce-box{background:#fff;border-radius:14px;padding:20px 24px;width:min(460px,94vw);display:flex;flex-direction:column;gap:10px}.nfce-box h2{margin:0}.nfce-box .botoes{display:flex;gap:8px;flex-wrap:wrap}.nfce-box .erro{color:var(--vermelho)}
 .danfe{width:80mm;font:12px/1.35 monospace;background:#fff;color:#000;padding:4mm}.danfe table{width:100%;border-collapse:collapse}.danfe th,.danfe td{text-align:left;padding:1px 2px}.danfe-t{font-size:10px;margin:4px 0}.danfe-aviso{border:1px solid #000;text-align:center;font-weight:700;margin:4px 0;padding:2px}.danfe-l{display:flex;justify-content:space-between}.danfe-ch{word-break:break-all;font-size:11px;margin:4px 0}.danfe-qr{display:flex;justify-content:center;margin:6px 0}
 @media screen{.nfce-box .danfe{display:none}}
+
+/* Caderno (fiado) */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin:10px 0}
+.kpi{background:#fff;border-radius:10px;box-shadow:var(--sombra);padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+.kpi small{opacity:.7}.kpi b{font-size:18px}
+.linha-atraso td{background:#fdecea}
+.caderno-saldo{border-radius:10px;padding:10px 12px;margin:8px 0;background:var(--verde-claro)}
+.caderno-saldo.devendo,.caderno-saldo.limite{background:#fff4d6}.caderno-saldo.atraso{background:#fdecea}
+.alerta-fiado{display:flex;align-items:center;justify-content:space-between;gap:8px;border-radius:8px;padding:8px 10px;margin:6px 0;background:#fff4d6;border:2px solid #e0a800;font-weight:600}
+.alerta-fiado.atraso{background:#fdecea;border-color:#c62828;color:#8e1b1b}
+.alerta-fiado button{white-space:nowrap}

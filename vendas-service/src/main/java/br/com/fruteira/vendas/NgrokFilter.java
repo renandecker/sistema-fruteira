@@ -1,5 +1,6 @@
 package br.com.fruteira.vendas;
 
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerRequestFilter;
@@ -14,10 +15,13 @@ import jakarta.ws.rs.ext.Provider;
  */
 @Provider
 public class NgrokFilter implements ContainerRequestFilter {
-    @Inject PixConfig config;
+    /** Lazy de propósito: os filtros JAX-RS são criados na inicialização estática, antes de a configuração de execução (@ConfigMapping) existir;
+     *  injetar o PixConfig direto derruba a partida com SRCFG00027 "Could not find a mapping". Aqui ele só é resolvido na primeira requisição. */
+    @Inject Instance<PixConfig> configLazy;
 
     @Override
     public void filter(ContainerRequestContext ctx) {
+        PixConfig config = configLazy.get();
         String host = ctx.getUriInfo().getRequestUri().getHost();
         String repassado = ctx.getHeaderString("X-Forwarded-Host");
         if (!PixWebhook.ehHostDoTunel(host, config) && !PixWebhook.ehHostDoTunel(primeiro(repassado), config)) return;

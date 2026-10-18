@@ -82,12 +82,20 @@ export function Clientes() {
   const add = () => post(R + '/clientes', f).then(() => { setF(ini); c(); setMsg('') }).catch(e => erro(e, 'Não foi possível cadastrar (CPF já cadastrado ou de cliente desativado).'))
   const desativar = x => window.confirm(`Desativar o cliente "${x.nome}"?\n${nota}`) && api(`${R}/clientes/${x.id}`, { method: 'DELETE' }).then(c).catch(erro)
   const reativar = x => post(`${R}/clientes/${x.id}/reativar`).then(c).catch(erro)
+  const limite = x => {
+    const t = window.prompt(`Limite do caderno (fiado) de ${x.nome}, em R$.\nVazio = limite padrão · 0 = não pode fiar:`, x.limiteCaderno ?? '')
+    if (t === null) return
+    const valor = t.trim() === '' ? null : Number(t.replace(',', '.'))
+    if (valor !== null && (Number.isNaN(valor) || valor < 0)) return setMsg('Valor inválido para o limite.')
+    api(`${R}/clientes/${x.id}/limite-caderno`, { method: 'PUT', body: JSON.stringify({ limite: valor }) }).then(c).catch(erro)
+  }
   return <Pagina titulo="👥 Clientes e fidelidade"><Aviso m={msg} />
     <div className="barra"><input placeholder="Nome" value={f.nome} onChange={s('nome')} /><input placeholder="CPF (só números)" value={f.cpf} onChange={s('cpf')} />
       <input placeholder="WhatsApp com DDD" value={f.telefone} onChange={s('telefone')} /><button className="btn" disabled={!f.nome || !f.cpf} onClick={add}>Cadastrar</button>
       <small>Cashback: 2% de cada compra identificada pelo CPF no caixa. Cliente desativado não acumula nem resgata.</small></div>
-    <table className="tab"><thead><tr><th>Nome</th><th>CPF</th><th>WhatsApp</th><th>Cashback</th><th>Situação</th><th></th></tr></thead>
+    <table className="tab"><thead><tr><th>Nome</th><th>CPF</th><th>WhatsApp</th><th>Cashback</th><th>Limite do caderno</th><th>Situação</th><th></th></tr></thead>
       <tbody>{l.map(x => <tr key={x.id} className={x.ativo === false ? 'inativo' : ''}><td>{x.nome}</td><td>{x.cpf}</td><td>{x.telefone}</td><td><b>{brl(x.cashback)}</b></td>
+        <td>{x.limiteCaderno != null ? brl(x.limiteCaderno) : <small>padrão</small>} <button className="btn sec" title="Somente o gerente altera o limite do caderno (fiado)" onClick={() => limite(x)}>✎</button></td>
         <td>{x.ativo === false ? <Selo x={x} /> : 'Ativo'}</td><td><BtnAtivo x={x} onDesativar={desativar} onReativar={reativar} /></td></tr>)}</tbody></table></Pagina>
 }
 

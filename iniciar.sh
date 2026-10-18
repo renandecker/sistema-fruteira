@@ -27,6 +27,7 @@ aguardar() { # $1=nome $2=porta
     sleep 2
   done
   echo "⚠ $1 não respondeu em 4 min — veja logs/$1.log"
+  return 1
 }
 
 PERFIL=()
@@ -122,6 +123,13 @@ liberar_portas() {
 
 liberar_portas
 
+# Desenvolvimento: banco H2 em arquivo (data/fruteira). Sobra de execução anterior (processo morto) deixa um .lock.db que trava a conexão;
+# como as portas dos serviços acabaram de ser liberadas, nenhum serviço nosso está com o banco aberto e o lock pode ser removido.
+if [ "$APP_ENV" != producao ]; then
+  mkdir -p data; rm -f data/*.lock.db 2>/dev/null
+  case "$(pwd -P)" in *[Oo]ne[Dd]rive*) echo "⚠ O projeto está dentro do OneDrive: a sincronização pode travar o arquivo do banco (data/fruteira.mv.db). Se der erro de banco, mova a pasta para fora do OneDrive (ex.: C:\\fruteira) ou defina H2_ARQUIVO no .env.";; esac
+fi
+
 # Ngrok (opcional, USAR_NGROK=true): túnel HTTPS público só para o webhook do Pix (porta 8083). O endereço (muda a cada início no plano grátis,
 # a menos que NGROK_DOMINIO esteja definido) vai para o vendas-service em NGROK_URL e a URL do webhook é montada a partir dele.
 # Pelo túnel só o POST /pix/webhook responde (NgrokFilter); o restante da API continua fechado.
@@ -156,7 +164,10 @@ for s in retaguarda-service:8084 catalogo-service:8081 estoque-service:8082 vend
     (cd "$nome" && exec mvn -q quarkus:dev -Dquarkus.console.enabled=false -Ddebug=false) > "logs/$nome.log" 2>&1 &
   fi
   PIDS+=($!)
-  aguardar "$nome" "$porta"
+  if ! aguardar "$nome" "$porta" && [ "$nome" = retaguarda-service ]; then
+    echo "❌ O retaguarda-service é o dono do banco (Flyway); sem ele os outros serviços falham com 'missing table'. Últimas linhas de logs/$nome.log:"
+    tail -n 25 "logs/$nome.log"; cleanup
+  fi
 done
 
 if [ "$APP_ENV" = producao ] && [ "$USE_NGINX" = true ]; then

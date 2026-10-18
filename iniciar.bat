@@ -24,6 +24,12 @@ for %%P in (%PORTAS_APP%) do (
   )
 )
 :sem_liberar
+rem Desenvolvimento: sobra de execucao anterior deixa data\fruteira.lock.db e trava o banco H2; as portas acabaram de ser liberadas, entao pode apagar
+if /i not "%APP_ENV%"=="desenvolvimento" goto sem_lock
+if not exist "%~dp0data" mkdir "%~dp0data"
+del /q "%~dp0data\*.lock.db" >nul 2>nul
+echo %~dp0| findstr /i "onedrive" >nul && echo [AVISO] O projeto esta dentro do OneDrive: a sincronizacao pode travar o banco ^(data\fruteira.mv.db^). Se der erro de banco, mova a pasta para fora do OneDrive ^(ex.: C:\fruteira^).
+:sem_lock
 rem Ngrok (opcional, USAR_NGROK=true): tunel HTTPS publico so para o webhook do Pix (porta 8083); o vendas-service descobre o endereco pela API local (4040)
 if /i not "%USAR_NGROK%"=="true" goto sem_ngrok
 where ngrok >nul 2>nul || ( echo [ERRO] USAR_NGROK=true, mas o ngrok nao esta no PATH ^(https://ngrok.com/download; depois: ngrok config add-authtoken SEU_TOKEN^) & pause & exit /b 1 )
@@ -43,7 +49,7 @@ echo Iniciando microsservicos ^(desenvolvimento^)...
 rem retaguarda PRIMEIRO: e o dono do Flyway (cria/atualiza o banco); os outros so validam o schema
 start "retaguarda-service :8084" cmd /k "cd /d %~dp0retaguarda-service && mvn quarkus:dev -Ddebug=false"
 echo Aguardando o retaguarda-service criar/atualizar o banco ^(Flyway^)...
-powershell -NoProfile -Command "for($i=0;$i -lt 90;$i++){ try{ (New-Object Net.Sockets.TcpClient('127.0.0.1',8084)).Close(); exit 0 }catch{ Start-Sleep 2 } }; exit 1" || echo [AVISO] retaguarda-service nao respondeu em 3 min ^(veja a janela dele^)
+powershell -NoProfile -Command "for($i=0;$i -lt 90;$i++){ try{ (New-Object Net.Sockets.TcpClient('127.0.0.1',8084)).Close(); exit 0 }catch{ Start-Sleep 2 } }; exit 1" || ( echo [ERRO] retaguarda-service nao subiu em 3 min: ele e o dono do banco ^(Flyway^) e sem ele os outros falham com "missing table". Veja a janela dele. & pause & exit /b 1 )
 start "catalogo-service :8081" cmd /k "cd /d %~dp0catalogo-service && mvn quarkus:dev -Ddebug=false"
 start "estoque-service :8082"  cmd /k "cd /d %~dp0estoque-service && mvn quarkus:dev -Ddebug=false"
 start "vendas-service :8083"   cmd /k "cd /d %~dp0vendas-service && mvn quarkus:dev -Ddebug=false"
@@ -84,7 +90,7 @@ for %%S in (retaguarda-service:8084 catalogo-service:8081 estoque-service:8082 v
     start "%%N :%%O" cmd /k "cd /d %~dp0%%N && mvn -q package -DskipTests && java -jar target\quarkus-app\quarkus-run.jar"
     if "%%N"=="retaguarda-service" (
       echo Aguardando o retaguarda-service criar/atualizar o banco ^(Flyway^)...
-      powershell -NoProfile -Command "for($i=0;$i -lt 90;$i++){ try{ (New-Object Net.Sockets.TcpClient('127.0.0.1',8084)).Close(); exit 0 }catch{ Start-Sleep 2 } }; exit 1" || echo [AVISO] retaguarda-service nao respondeu em 3 min ^(veja a janela dele^)
+      powershell -NoProfile -Command "for($i=0;$i -lt 90;$i++){ try{ (New-Object Net.Sockets.TcpClient('127.0.0.1',8084)).Close(); exit 0 }catch{ Start-Sleep 2 } }; exit 1" || ( echo [ERRO] retaguarda-service nao subiu em 3 min: ele e o dono do banco ^(Flyway^) e sem ele os outros falham com "missing table". Veja a janela dele. & pause & exit /b 1 )
     )
   )
 )

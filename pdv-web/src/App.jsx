@@ -8,6 +8,8 @@ import Categorias from './Categorias.jsx'
 import Promocoes from './Promocoes.jsx'
 import TefTransacoes from './TefTransacoes.jsx'
 import TransacoesPix from './TransacoesPix.jsx'
+import Caderno from './Caderno.jsx'
+import RelClientes from './RelClientes.jsx'
 import { Caixa, CaixaGerente } from './Caixa.jsx'
 import Login from './Login.jsx'
 import { PROD, sairKeycloak } from './auth.js'
@@ -16,7 +18,7 @@ import './theme.css'
 const PAGINAS = { pdv: PDV, produtos: Produtos, entrada: Entrada, perdas: Perdas, relperdas: RelPerdas, abc: Abc, fechamento: Caixa, caixagerente: CaixaGerente,
   selfcheckout: P2.SelfCheckout, consulta: P2.Consulta, fornecedores: P2.Fornecedores, clientes: P2.Clientes, producao: P2.Producao,
   xml: P2.ImportarXml, ceasa: P2.Ceasa, sugestao: P2.Sugestao, contas: P2.Contas, dre: P2.Dre, nfce: P2.Nfce, margem: P2.Margem,
-  encartes: P2.Encartes, etiquetas: P2.Etiquetas, usuarios: P2.Usuarios, perifericos: P2.Perifericos, auditoria: Auditoria, categorias: Categorias, promocoes: Promocoes, tef: TefTransacoes, pix: TransacoesPix }
+  encartes: P2.Encartes, etiquetas: P2.Etiquetas, usuarios: P2.Usuarios, perifericos: P2.Perifericos, auditoria: Auditoria, categorias: Categorias, promocoes: Promocoes, tef: TefTransacoes, pix: TransacoesPix, caderno: Caderno, relclientes: RelClientes }
 
 export default function App({ usuarioInicial }) {
   const [atual, setAtual] = useState('pdv'); const [aberto, setAberto] = useState(true); const [user, setUser] = useState(() => { try { return usuarioInicial ?? JSON.parse(sessionStorage.getItem('user') || 'null') } catch { return null } })
@@ -51,6 +53,6 @@ export default function App({ usuarioInicial }) {
             : <button className="hamb" title={`Sair (${user.nome})`} onClick={sair}>⏻</button>}
         </div>
       </nav>
-      <main className="conteudo">{!permitido ? <div className="page"><h1>🚫 Acesso negado</h1><p>Seu perfil não tem permissão para esta tela.</p></div> : Pag ? <Pag /> : <EmBreve item={item} />}</main>
+      <main className="conteudo">{!permitido ? <div className="page"><h1>🚫 Acesso negado</h1><p>Seu perfil não tem permissão para esta tela.</p></div> : Pag ? <Pag perfil={perfil} /> : <EmBreve item={item} />}</main>
     </div>)
 }

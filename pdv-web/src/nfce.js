@@ -2,7 +2,7 @@ import { cfg } from './lib.jsx'
 import { tBand } from './tef.js'
 import { somenteDigitos } from './cpf.js'
 
-const TPAG = { DINHEIRO: '01', CREDITO: '03', DEBITO: '04', VALE_ALIMENTACAO: '10', VALE_REFEICAO: '11', PIX: '17' }
+const TPAG = { DINHEIRO: '01', CREDITO: '03', DEBITO: '04', VALE_ALIMENTACAO: '10', VALE_REFEICAO: '11', PIX: '17', CADERNO: '05' }
 
 /** Monta o corpo de POST /nfce/emitir a partir da venda gravada (itens com NCM, pagamentos com dados do cartão) e do CPF (opcional). */
 export function montarEmissao(venda, produtos = [], cpf = '', nome = '', cartoes = null) {

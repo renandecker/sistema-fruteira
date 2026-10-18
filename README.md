@@ -3,6 +3,8 @@
 ## Rodar tudo de uma vez
 - Linux/macOS: `./iniciar.sh` (Ctrl+C encerra; `./parar.sh` se sobrar processo)
 - **Portas:** ao iniciar (`iniciar.sh` e `iniciar.bat`), o que estiver escutando em 8081–8084 (serviços), 8090 (agente TEF) e 5173 (front) é encerrado, para uma execução anterior que ficou pendurada não impedir a subida; o script mostra qual processo foi encerrado e aborta se não conseguir liberar. PostgreSQL, Keycloak e nginx são do Docker e não são tocados. `LIBERAR_PORTAS=false` no `.env` desliga isso.
+- **Banco travado / `missing table`:** o retaguarda-service é o dono do banco (Flyway) e sobe primeiro; se ele não subir, o `iniciar` agora **para e mostra o log dele**, em vez de subir os outros (que falhariam com `Schema-validation: missing table [Movimento]`). Em desenvolvimento o script apaga o `data/*.lock.db` que sobra de uma execução anterior e avisa se a pasta está no **OneDrive** (a sincronização pode travar o `data/fruteira.mv.db`; erro `90028` / "Acquisition timeout"). Se persistir, feche todas as janelas, mova o projeto para fora do OneDrive (ex.: `C:\fruteira`) ou apague a pasta `data` (recria o banco).
+- **`missing table [Entities$Auditoria]`:** as entidades do retaguarda eram classes aninhadas sem nome (tabela `Entities$X`, que o Hibernate procura com maiúsculas/minúsculas exatas e o H2 guardava em maiúsculas). Agora cada uma tem nome explícito (`@Entity(name = "Cliente")` etc.) e as tabelas são `Fornecedor`, `Cliente`, `Cotacao`, `Conta`, `Nota`, `Auditoria`, `Usuario`; as migrations V1–V3 e V13 foram reescritas com esses nomes (o projeto ainda não tinha banco de verdade). **Apague a pasta `data` uma vez** ao atualizar, senão o Flyway acusa checksum diferente.
 - Windows: duplo clique em `iniciar.bat` (`parar.bat` encerra)
 
 ## Rodar manualmente (3 terminais + front)
@@ -343,6 +345,16 @@ Pasta **`backup/`** (só precisa do Node.js): `backup.bat` / `./backup.sh` gera 
 - **Agendar:** `agendar.bat` (Windows, 02:00 todo dia) ou `./agendar.sh` (cron). Retenção de 30 dias (`BACKUP_RETENCAO_DIAS`), na pasta local e nos destinos.
 - **Restaurar:** `restaurar.bat|.sh <arquivo> --senha ...` (confere o hash, exige digitar SIM; `.env`/certificado/realm saem em `backup/restaurado-<data>/` sem sobrescrever nada).
 - Testado com Docker simulado e um pendrive em pasta (backup, criptografia, senha errada, arquivo corrompido, retenção, restauração dev e prod); **não testado** com PostgreSQL real nem no Windows (`.bat`, `schtasks`). Detalhes em `backup/LEIA-ME.txt`.
+
+## Caderno (fiado) e dívida de cliente
+
+- **No PDV:** ao digitar o CPF de um cliente que está devendo, aparece um **alerta** (amarelo; vermelho se a dívida mais velha tem 30 dias ou mais) com o botão **Ver caderno**: saldo, desde quando, limite, últimos lançamentos e **Receber** (dinheiro/Pix/cartão; em dinheiro o valor entra no turno como suprimento, então a conferência cega do caixa continua certa).
+- **Anotar a dívida:** na tela de pagamento use **Caderno (fiado)** (**F10** ou tecla 7). Exige CPF de **cliente cadastrado** e respeita o limite (padrão R$ 300, `CADERNO_LIMITE_PADRAO`; por cliente, o gerente muda na tela *Clientes*: vazio = padrão, 0 = não pode fiar). Pode misturar com outras formas (ex.: R$ 20 em dinheiro + o resto no caderno). Ao escolher Caderno, **tudo o que falta pagar** já vai para a dívida (a tela mostra "No caderno, para pagar depois" e o botão vira "Finalizar e anotar R$ X no caderno"): a venda fecha sem receber nada na hora. Precisa de rede: não entra na fila offline.
+- **Tela Caderno** (menu Financeiro, supervisor): quem está devendo, total a receber, atrasados, maior devedor, receber; **perdão** só gerente (com motivo, vai para a auditoria).
+- **Relatório "Clientes: compras e dívidas"** (menu Relatórios, gerente): período, quem mais compra (total, nº de compras, ticket médio, última compra), quem mais deve, fiado sobre o comprado e exportação CSV.
+- **Regras:** o pagamento abate a dívida **mais antiga primeiro**; cancelar a venda (PIN do gerente) estorna a dívida; nada é apagado (lançamento errado = cancelar, só gerente; tudo na auditoria). NFC-e usa tPag **05** (crédito loja).
+- **Banco:** migration `V13` (tabela `CadernoLancamento` + `Cliente.limiteCaderno`). Teste da conta: `retaguarda-service/testar-caderno.sh`.
+- Limite conhecido: o cashback de 2% continua sendo creditado sobre o total da compra, inclusive a parte fiada.
 
 ## Pendências para produção
 

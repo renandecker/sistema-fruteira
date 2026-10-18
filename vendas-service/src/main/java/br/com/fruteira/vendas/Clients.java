@@ -22,6 +22,9 @@ public class Clients {
             return precoPromocional != null && precoPromocional.compareTo(base) < 0 ? precoPromocional : base;
         }
     }
+    /** Caderno (fiado) no retaguarda-service: situação do cliente, lançamento idempotente por venda e estorno. */
+    public record CadernoLanc(String cpf, BigDecimal valor, Long vendaId, String obs, String usuario) {}
+    public record CadernoSituacao(String cpf, String nome, BigDecimal saldo, BigDecimal limite, BigDecimal disponivel) {}
     public record BaixaDTO(Long produtoId, BigDecimal quantidade, String tipo, String motivo) {}
 
     @RegisterRestClient(configKey = "catalogo") @RegisterClientHeaders @Path("/produtos")
@@ -29,4 +32,11 @@ public class Clients {
 
     @RegisterRestClient(configKey = "estoque") @RegisterClientHeaders @Path("/estoque")
     public interface Estoque { @POST @Path("/baixa") @Consumes("application/json") void baixa(BaixaDTO b); }
+
+    @RegisterRestClient(configKey = "caderno") @RegisterClientHeaders @Path("/caderno")
+    public interface Caderno {
+        @GET @Path("/cliente/{cpf}") CadernoSituacao situacao(@PathParam("cpf") String cpf, @QueryParam("limite") int limite);
+        @POST @Path("/lancar") @Consumes("application/json") void lancar(CadernoLanc l);
+        @POST @Path("/venda/{vendaId}/estornar") void estornar(@PathParam("vendaId") Long vendaId);
+    }
 }
