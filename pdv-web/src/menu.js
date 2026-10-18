@@ -31,6 +31,7 @@ export const MENU = [
     { id: 'caderno', icone: '📒', titulo: 'Caderno (fiado)', status: 'ok', perfil: 'supervisor', desc: 'Quem está devendo, receber e perdoar dívidas.' },
     { id: 'tef', icone: '📟', titulo: 'Transações TEF', status: 'ok', perfil: 'supervisor' },
     { id: 'pix', icone: '💠', titulo: 'Transações PIX', status: 'ok', perfil: 'supervisor' },
+    { id: 'saude', icone: '🩺', titulo: 'Saúde dos pagamentos', status: 'ok', perfil: 'supervisor', desc: 'Verificação de hora em hora do Pix e do TEF definidos no .env.' },
     { id: 'dre', icone: '📊', titulo: 'DRE e fluxo de caixa', status: 'ok', perfil: 'gerente', desc: 'DRE simplificado e fluxo diário/mensal.' },
     { id: 'nfce', icone: '🧮', titulo: 'NFC-e / SAT', status: 'ok', perfil: 'supervisor', desc: 'Emissão, contingência offline, cancelamento e reenvio.' },
   ]},

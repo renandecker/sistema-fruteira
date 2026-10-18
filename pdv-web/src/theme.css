@@ -167,3 +167,9 @@ kbd{background:#0003;border-radius:4px;padding:0 5px;font-size:11px;font-family:
 .alerta-fiado{display:flex;align-items:center;justify-content:space-between;gap:8px;border-radius:8px;padding:8px 10px;margin:6px 0;background:#fff4d6;border:2px solid #e0a800;font-weight:600}
 .alerta-fiado.atraso{background:#fdecea;border-color:#c62828;color:#8e1b1b}
 .alerta-fiado button{white-space:nowrap}
+
+.selos-saude{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0}
+.selo-saude{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:4px 10px;font-weight:700;font-size:.9rem;cursor:help}
+.selo-saude.fora{background:#fdecea;color:#8e1b1b;border:2px solid #c62828}
+.selo-saude.fora span[aria-hidden]{filter:grayscale(1)}
+.selo-saude.aviso{background:#fff4d6;color:#7a5a00;border:2px solid #e0a800}

@@ -106,6 +106,9 @@ public abstract class BacenPixService implements PixProviderService {
     }
     protected static String enc(String s) { return URLEncoder.encode(s, StandardCharsets.UTF_8); }
 
+    /** Autentica de verdade (ignora o token em cache): prova que certificado, client id/secret e URLs estão certos. */
+    @Override public synchronized void testarConexao() throws Exception { tokenAte = Instant.EPOCH; token(); }
+
     private synchronized String token() throws Exception {
         if (token != null && Instant.now().isBefore(tokenAte)) return token;
         if (baseUrl().isBlank() || clientId().isBlank()) throw new IllegalStateException("Pix " + provider().rotulo() + " não configurado: " + String.join("; ", problemasDeConfiguracao()));

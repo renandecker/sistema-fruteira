@@ -161,6 +161,16 @@ Segue o roteiro do `pix.txt`: o React nunca fala com o PSP; o servidor Java guar
 - **Ligar no caixa:** Configurações → Balança e periféricos → PIX → *Integrado ao PSP*. `FRUTEIRA_PIX_OBRIGATORIO=true` recusa PIX sem confirmação do PSP.
 - **Fora do escopo:** SSE/WebSocket (hoje é polling), QR na tela do cliente, devolução parcial, conciliação por extrato.
 
+## Saúde dos pagamentos (Pix e TEF, de hora em hora)
+
+O `vendas-service` tem uma rotina agendada que confere se o Pix e o TEF estão funcionando **como foi definido no `.env`**:
+
+- `SAUDE_INTERVALO=1h` — de quanto em quanto tempo (`30m`, `15m`, `2h`…; `off` desliga). `SAUDE_PRIMEIRA_EM` (padrão `1m`) é o atraso da 1ª conferência depois da partida; `SAUDE_TEF_URL` só muda se o agente TEF roda em outro computador; `SAUDE_HISTORICO` = quantas verificações guardar.
+- **Pix:** só o provedor de `PIX_PROVIDER`. Vê se a configuração está completa, se dá para autenticar/consultar o provedor (sem criar cobrança), se há URL de webhook e se há Pix recebido há mais de 30 min sem venda.
+- **TEF:** só o de `TEF_PROVIDER`; vazio ou `nenhum` = não é conferido. Vê se o agente responde (`/tef/status`, com `TEF_TOKEN`), se é o mesmo provedor do `.env`, se o pinpad está conectado, pendências de conciliação e cartões aprovados sem venda. Nunca passa cartão.
+- **Onde ver:** log do serviço (FALHA = erro, ATENÇÃO = aviso), menu *Financeiro e Fiscal → Saúde dos pagamentos* (com “Verificar agora” para supervisor/gerente) e selos no PDV (💠 PIX fora, 📟 TEF fora; amarelo = só aviso; somem quando está tudo bem) (atualizada a cada 5 min). O histórico fica em memória.
+- **Testes:** `vendas-service/testar-saude.sh` (regras, só JDK) e `pdv-web/tests/saude.test.jsx`. ⚠ O agendador Quarkus, a chamada real aos PSPs (`/users/me` no Mercado Pago, `/finance/balance` no Asaas, token OAuth nos bancos) e ao agente TEF **não foram executados aqui**: na 1ª vez, abra a tela e clique em “Verificar agora”.
+
 ## Pagamento em mais de uma forma
 No modal **Pagar**, divida o total em quantas formas precisar: escolha a forma (`F1`–`F6`/`1`–`6`), informe o valor e `Enter` (**Adicionar pagamento**); repita até cobrir o total (**Finalizar venda**). O modal mostra o que já foi pago e o que falta; `F7` preenche o restante, `Delete` ou o × remove um pagamento. Só **dinheiro** pode passar do que falta (gera troco); no cartão/PIX/vales o valor não pode exceder o restante. No dinheiro o sistema grava o valor **aplicado** à venda (sem o troco), o que mantém o fechamento de caixa correto.
 

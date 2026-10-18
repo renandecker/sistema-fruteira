@@ -24,6 +24,10 @@ public abstract class ApiKeyPixService implements PixProviderService {
     /** Cabeçalhos de autenticação do provedor. */
     protected abstract Map<String, String> autenticacao();
 
+    /** Consulta autenticada e inofensiva (GET) que prova que a chave é válida; usada por testarConexao(). */
+    protected abstract String caminhoDeTeste();
+    @Override public void testarConexao() throws Exception { chamar("GET", caminhoDeTeste(), null, null); }
+
     protected static String limpa(String url) { return url.endsWith("/") ? url.substring(0, url.length() - 1) : url; }
 
     protected JsonNode chamar(String metodo, String caminho, Object corpo, Map<String, String> extras) throws Exception {

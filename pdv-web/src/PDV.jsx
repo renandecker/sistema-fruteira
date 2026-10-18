@@ -16,6 +16,7 @@ import { NfceAviso } from './Danfe.jsx'
 import { decodificarEtiqueta } from './etiqueta.js'
 import { situacaoCaderno, nivelAlerta, textoAlerta, motivoBloqueio } from './caderno.js'
 import { CadernoPainel } from './Caderno.jsx'
+import { selosSaude, horaCurta } from './saude.js'
 
 const brl = n => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const dataCurta = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : ''
@@ -32,6 +33,11 @@ export default function PDV() {
   const [nfceAviso, setNfceAviso] = useState(null)   // { nota, venda } — retorno da NFC-e logo após a venda
   const stCpf = statusCpf(cpf)
   const [sitCad, setSitCad] = useState(null); const [painelCad, setPainelCad] = useState(false)   // situação do cliente no caderno (fiado)
+  const [saude, setSaude] = useState(null)   // última verificação horária do Pix/TEF (só avisa se houver problema)
+  useEffect(() => {
+    let vivo = true; const ler = () => fetch('/api/vendas/saude/pagamentos').then(r => r.ok ? r.json() : null).then(x => vivo && setSaude(x && x.ultima ? x : null)).catch(() => {})
+    ler(); const t = setInterval(ler, 5 * 60 * 1000); return () => { vivo = false; clearInterval(t) }
+  }, [])
   const recarregarCad = () => situacaoCaderno(cpf).then(setSitCad).catch(() => setSitCad(null))
   useEffect(() => {        // CPF completo e válido: consulta o caderno e avisa se o cliente está devendo
     if (stCpf !== 'ok') { setSitCad(null); return }
@@ -309,6 +315,7 @@ export default function PDV() {
         </div>
         {stCpf === 'invalido' && <small className="erro" role="alert">CPF inválido — confira os números</small>}
         {stCpf === 'incompleto' && <small className="eco">CPF incompleto</small>}
+        {selosSaude(saude).length > 0 && <div className="selos-saude" role="alert" data-testid="alerta-saude">{selosSaude(saude).map(x => <span key={x.nome} className={`selo-saude ${x.fora ? 'fora' : 'aviso'}`} title={`${x.detalhe} (verificado às ${horaCurta(saude.ultima.quando)})`}><span aria-hidden="true">{x.icone}</span> {x.texto}</span>)}<small>avise o gerente</small></div>}
         {sitCad && nivelAlerta(sitCad) !== 'ok' && <div className={`alerta-fiado ${nivelAlerta(sitCad) === 'atraso' ? 'atraso' : ''}`} role="alert"><span>📒 {textoAlerta(sitCad, brl)}</span><button className="btn sec" onClick={() => setPainelCad(true)}>Ver caderno</button></div>}
         {sitCad && nivelAlerta(sitCad) === 'ok' && <small className="eco">📒 {sitCad.nome}: sem dívida no caderno · <a href="#caderno" onClick={e => { e.preventDefault(); setPainelCad(true) }}>abrir</a></small>}
         <ul>

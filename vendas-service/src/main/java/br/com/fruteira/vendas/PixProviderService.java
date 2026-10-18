@@ -42,6 +42,9 @@ public interface PixProviderService {
         return l;
     }
 
+    /** Confere, sem criar cobrança, que dá para falar com o provedor (autenticação/consulta simples). Lança exceção se falhar. Usado pela rotina de saúde (SAUDE_INTERVALO). */
+    default void testarConexao() throws Exception { }
+
     /** O que falta configurar para este provedor funcionar (vazio = pronto). Aparece em /pix/status e no log de partida. */
     default List<String> problemasDeConfiguracao() { return List.of(); }
 }

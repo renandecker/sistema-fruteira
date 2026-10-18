@@ -23,6 +23,7 @@ import java.util.Map;
 public class AsaasPixService extends ApiKeyPixService {
     @Override public PixProvider provider() { return PixProvider.ASAAS; }
     @Override protected String baseUrl() { return limpa(config.asaas().baseUrl().filter(s -> !s.isBlank()).orElse(provider().urlPadrao())); }
+    @Override protected String caminhoDeTeste() { return "/finance/balance"; }
     @Override protected Map<String, String> autenticacao() { return Map.of("access_token", config.asaas().apiKey().orElse("")); }
 
     @Override

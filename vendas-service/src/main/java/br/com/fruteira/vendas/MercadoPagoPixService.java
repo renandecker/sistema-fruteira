@@ -30,6 +30,7 @@ public class MercadoPagoPixService extends ApiKeyPixService {
 
     @Override public PixProvider provider() { return PixProvider.MERCADO_PAGO; }
     @Override protected String baseUrl() { return limpa(config.mercadoPago().baseUrl().filter(s -> !s.isBlank()).orElse(provider().urlPadrao())); }
+    @Override protected String caminhoDeTeste() { return "/users/me"; }
     @Override protected Map<String, String> autenticacao() { return Map.of("Authorization", "Bearer " + config.mercadoPago().accessToken().orElse("")); }
 
     @Override
