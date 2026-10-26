@@ -38,5 +38,7 @@ public class Venda extends PanacheEntity {
         public Long tefId; public String nsu, autorizacao, bandeira, adquirente, cnpjCredenciadora;
         // Pix recebido (txid e endToEndId — a NFC-e usa tPag 17)
         public String pixTxid, pixE2e;
+        /** Parcelas do crédito (TEF): a NFC-e informa pagamento a prazo (indPag 1) quando > 1 */
+        public Integer parcelas;
     }
 }

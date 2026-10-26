@@ -10,10 +10,15 @@ import java.time.*;
 public class Entities {
     @Entity(name = "Fornecedor") public static class Fornecedor extends PanacheEntity {
         public String nome; public String documento; public String tipo; public String telefone; // CEASA, PRODUTOR_RURAL, EMPRESA
+        // Cadastro fiscal completo (CNPJ/CPF em "documento"): inscrições e endereço, exigidos na nota de entrada
+        public String ie, im, email, logradouro, numero, bairro, municipio, cMun, uf, cep;
         @Column(columnDefinition = "boolean default true") public Boolean ativo = true;
     }
     @Entity(name = "Cliente") public static class Cliente extends PanacheEntity {
-        public String nome; @Column(unique = true) public String cpf; public String telefone;
+        public String nome; @Column(unique = true) public String cpf; public String telefone;   // "cpf" guarda o CPF (11 dígitos) ou o CNPJ (14) do cliente
+        // Cadastro completo (cliente pessoa jurídica ou nota com destinatário identificado)
+        public String tipo;                                  // PF | PJ (deduzido do documento)
+        public String ie, email, logradouro, numero, bairro, municipio, cMun, uf, cep;
         public BigDecimal cashback = BigDecimal.ZERO;
         /** Teto de dívida no caderno (fiado); nulo = usa o limite padrão do sistema. */
         public BigDecimal limiteCaderno;
@@ -30,6 +35,8 @@ public class Entities {
     }
     @Entity(name = "Nota") public static class Nota extends PanacheEntity {
         public Long vendaId; public Integer numero; public String chave; public String protocolo;
+        public String modelo;                            // 65 = NFC-e (consumidor) · 55 = NF-e (venda a empresa); vazio = 65 (notas antigas)
+        public Integer serie, seqCce;                    // série da nota; nº da última carta de correção (NF-e)
         public String status; public String cpf; public BigDecimal valor; public LocalDateTime data = LocalDateTime.now();
         @Column(length = 2000) public String cartoes;   // JSON: pagamentos em cartão (tPag, CNPJ credenciadora, bandeira, autorização, NSU)
         // --- emissão real (SEFAZ-RS) ---

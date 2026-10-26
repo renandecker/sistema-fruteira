@@ -10,6 +10,10 @@ mkdir -p logs data; PIDS=()
 
 [ -f .env ] || { echo "❌ Arquivo .env não encontrado (copie de .env.example)"; exit 1; }
 set -a; . <(tr -d '\r' < .env); set +a
+# Certificado A1 da NF-e/NFC-e: certificado.pfx na raiz do projeto (ao lado do .env). FISCAL_CERT_PATH só é preciso para outro caminho/nome.
+export FRUTEIRA_HOME="$PWD"
+[ -z "${FISCAL_CERT_PATH:-}" ] && [ -f "$PWD/certificado.pfx" ] && export FISCAL_CERT_PATH="$PWD/certificado.pfx"
+case "${FISCAL_CERT_PATH:-}" in ""|/*) ;; *) [ -f "$PWD/$FISCAL_CERT_PATH" ] && export FISCAL_CERT_PATH="$PWD/$FISCAL_CERT_PATH";; esac     # relativo → absoluto (os serviços rodam dentro da própria pasta)
 APP_ENV=${APP_ENV:-desenvolvimento}; USE_NGINX=${USE_NGINX:-false}
 case "$APP_ENV" in desenvolvimento|producao) ;; *) echo "❌ APP_ENV inválido: '$APP_ENV' (use desenvolvimento ou producao)"; exit 1;; esac
 case "$USE_NGINX" in true|false) ;; *) echo "❌ USE_NGINX inválido: '$USE_NGINX' (use true ou false)"; exit 1;; esac
@@ -50,9 +54,9 @@ if [ "$APP_ENV" = producao ]; then
   [ -z "${TEF_TOKEN:-}" ] && echo "⚠ TEF_TOKEN vazio: defina um token no .env e em Configurações do caixa (qualquer página aberta no navegador pode chamar o agente local)."
   [ "${FISCAL_PROVIDER:-simulador}" = simulador ] && echo "ℹ NFC-e em modo SIMULADOR (FISCAL_PROVIDER=simulador): sem valor fiscal. Para a Nota Fiscal Gaúcha real: FISCAL_PROVIDER=sefaz (ver README)."
   if [ "${FISCAL_PROVIDER:-simulador}" = sefaz ]; then
-    falta=""; for v in FISCAL_CNPJ FISCAL_RAZAO FISCAL_IE FISCAL_CMUN FISCAL_CSC_ID FISCAL_CSC FISCAL_CERT_PATH; do [ -z "${!v:-}" ] && falta="$falta $v"; done
+    falta=""; for v in FISCAL_CNPJ FISCAL_RAZAO FISCAL_IE FISCAL_LOGRADOURO FISCAL_BAIRRO FISCAL_CMUN FISCAL_MUNICIPIO FISCAL_CEP FISCAL_CSC_ID FISCAL_CSC FISCAL_CERT_SENHA; do [ -z "${!v:-}" ] && falta="$falta $v"; done
     [ -n "$falta" ] && { echo "❌ FISCAL_PROVIDER=sefaz exige no .env:$falta"; exit 1; }
-    [ -r "$FISCAL_CERT_PATH" ] || { echo "❌ Certificado A1 não encontrado/legível: $FISCAL_CERT_PATH"; exit 1; }
+    [ -r "${FISCAL_CERT_PATH:-}" ] || { echo "❌ Certificado A1 não encontrado: coloque o arquivo certificado.pfx na raiz do projeto (${PWD}) ou aponte FISCAL_CERT_PATH${FISCAL_CERT_PATH:+ (atual: $FISCAL_CERT_PATH)}"; exit 1; }
     [ "${FISCAL_AMBIENTE:-2}" = 1 ] && echo "⚠ NFC-e em PRODUÇÃO (FISCAL_AMBIENTE=1): as notas têm valor fiscal." || echo "ℹ NFC-e em HOMOLOGAÇÃO (FISCAL_AMBIENTE=2): sem valor fiscal."
   fi
   PIXP=$(echo "${PIX_PROVIDER:-simulador}" | tr 'a-z -' 'A-Z__')

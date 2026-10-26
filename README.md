@@ -171,6 +171,25 @@ O `vendas-service` tem uma rotina agendada que confere se o Pix e o TEF estão f
 - **Onde ver:** log do serviço (FALHA = erro, ATENÇÃO = aviso), menu *Financeiro e Fiscal → Saúde dos pagamentos* (com “Verificar agora” para supervisor/gerente) e selos no PDV (💠 PIX fora, 📟 TEF fora; amarelo = só aviso; somem quando está tudo bem) (atualizada a cada 5 min). O histórico fica em memória.
 - **Testes:** `vendas-service/testar-saude.sh` (regras, só JDK) e `pdv-web/tests/saude.test.jsx`. ⚠ O agendador Quarkus, a chamada real aos PSPs (`/users/me` no Mercado Pago, `/finance/balance` no Asaas, token OAuth nos bancos) e ao agente TEF **não foram executados aqui**: na 1ª vez, abra a tela e clique em “Verificar agora”.
 
+## Dados obrigatórios da nota fiscal (emitir sem rejeição)
+
+Antes de gastar um número de nota, o servidor confere **todos** os campos obrigatórios e devolve a lista do que corrigir (HTTP 422 com cada problema), em vez de a SEFAZ rejeitar depois. A tela **NFC-e / NFG** mostra uma **Conferência fiscal** (emitente, produtos, clientes e fornecedores com problema) e `POST /api/retaguarda/nfce/conferir` confere uma venda sem emitir.
+
+| Grupo | O que é conferido | Onde se corrige |
+|---|---|---|
+| **Cadastro** (emitente) | CNPJ com dígitos verificadores, razão social, Inscrição Estadual (RS: 10 dígitos + DV), IM (opcional), endereço completo (logradouro, nº, bairro, município, código IBGE de 7 dígitos começando por 43, CEP de 8 dígitos), regime (CRT 1/2/3/4) | `.env` (`FISCAL_*`) |
+| **Cadastro** (fornecedores) | CNPJ (ou CPF de produtor rural) válido, IE, IM, e-mail e endereço (se começar a preencher, completo) | Cadastros → Fornecedores (⚠ completar) |
+| **Destinatário** | CPF (Nota Fiscal Gaúcha) **ou CNPJ** válidos; cliente com CPF/CNPJ, IE, e-mail e endereço completo (empresa exige IE e endereço) | Cadastros → Clientes |
+| **Operação** | Natureza (`FISCAL_NATOP`), CFOP (4 dígitos, 5xxx), unidade, NCM de 8 dígitos, quantidade, valor unitário e total (que conferem entre si), classificação de IBS/CBS | Produtos e preços → 🧾 Fiscal |
+| **Tributação** | Por regime: Simples = CSOSN (102/103/300/400/500) · normal = CST do ICMS (00/40/41/50/60; 00 exige alíquota) · PIS/COFINS (01/02 exigem alíquota, 04–09 não tributado, 49/99 outras) · origem 0–8. Vale a classificação do produto, senão o padrão da loja. Totais de vBC/vICMS/vPIS/vCOFINS saem somados dos itens. IPI não existe na NFC-e de varejo | produto ou `.env` |
+| **Forma de pagamento** | Meio (01 dinheiro, 03/04 cartão, 05 caderno, 10/11 vales, 17 Pix, 99 outros com `xPag`), **à vista × a prazo** (`indPag`: caderno e crédito parcelado = a prazo), pagamentos ≥ total e troco só com dinheiro | PDV |
+| **TEF / maquininha** | Com `FISCAL_EXIGE_TEF` (padrão: ligado com `FISCAL_PROVIDER=sefaz`) cartão só entra na nota com **CNPJ da credenciadora, bandeira e autorização do TEF** (`tpIntegra` 1); CNPJ e bandeira conferidos. Maquininha não integrada: `FISCAL_EXIGE_TEF=false` (`tpIntegra` 2). As parcelas do crédito vêm do TEF | `.env` / TEF |
+| **IBS/CBS** | `FISCAL_IBSCBS=auto`: ligado no regime normal (obrigatório desde 03/08/2026) e desligado no Simples/MEI (obrigatório só a partir de 04/01/2027); `on` antecipa. Exige CST (3) e cClassTrib (6) da tabela oficial, no `.env` ou por produto; alíquotas de 2026: CBS 0,9% e IBS 0,1%; redução por produto (`pRedIbsCbs`) | `.env` / Produtos e preços |
+
+- **Migrations** `V14` (cadastro fiscal de clientes/fornecedores), `V15` (classificação fiscal do produto) e `V16` (parcelas do pagamento): apague a pasta `data` **ou** deixe o Flyway aplicá-las no banco existente (são idempotentes). Testadas por `database/testar-migrations.sh` (756 checks).
+- **Testes:** `retaguarda-service/testar-fiscal.sh` (42 + 59 checks, só JDK) e `pdv-web/tests/fiscal.test.jsx`.
+- ⚠ **Não foi feito / não foi verificado:** (1) **NF-e (modelo 55)** existe como emissor separado (seção abaixo), mas as **URLs dos webservices de NF-e da SEFAZ-RS não foram validadas**, não há contingência (EPEC/SVC) nem inutilização de numeração; (2) o grupo **IBS/CBS** segue a NT 2025.002 (grupo `IBSCBS` por item conferido no leiaute v1.50); o grupo de totais `IBSCBSTot`, a posição no XML e os **códigos cClassTrib de hortifrúti/cesta básica** (com redução de 100%) **não foram validados contra o XSD nem a tabela oficial**: confirme com o contador e teste em **homologação** antes de produção; (3) **tributos aproximados (Lei 12.741)** em `infAdic` não são gerados; (4) nada disso foi compilado com Quarkus nem transmitido à SEFAZ de verdade (sem Maven/certificado aqui). (5) **Gestão de contas bancárias** não existe: há contas a pagar/receber, DRE e fluxo de caixa, sem cadastro de bancos/contas.
+
 ## Pagamento em mais de uma forma
 No modal **Pagar**, divida o total em quantas formas precisar: escolha a forma (`F1`–`F6`/`1`–`6`), informe o valor e `Enter` (**Adicionar pagamento**); repita até cobrir o total (**Finalizar venda**). O modal mostra o que já foi pago e o que falta; `F7` preenche o restante, `Delete` ou o × remove um pagamento. Só **dinheiro** pode passar do que falta (gera troco); no cartão/PIX/vales o valor não pode exceder o restante. No dinheiro o sistema grava o valor **aplicado** à venda (sem o troco), o que mantém o fechamento de caixa correto.
 
@@ -336,7 +355,7 @@ Catálogo em `pdv-web/src/cartoes.js` e `vendas-service/.../Cartoes.java` (mante
 - **Contingência offline (tpEmis 9):** sem internet ou SEFAZ fora do ar, a nota é assinada e emitida offline (`dhCont`, `xJust`, QR Code de contingência), fica `CONTINGENCIA` e é transmitida depois pelo botão **Transmitir**. Após timeout o sistema **consulta a chave** antes de decidir (evita nota duplicada); se a SEFAZ não responde, emite em contingência com um novo número (o número pulado deve ser **inutilizado** no portal).
 - **Cancelamento** (evento 110111, justificativa ≥ 15 caracteres) pela tela NFC-e.
 
-**Como ligar (`.env`)**: `FISCAL_PROVIDER=sefaz`, emitente (`FISCAL_CNPJ/RAZAO/IE/CMUN/...`), `FISCAL_CSC_ID` + `FISCAL_CSC` (gerados no portal da SEFAZ-RS), `FISCAL_CERT_PATH`/`FISCAL_CERT_SENHA` (A1) e comece com `FISCAL_AMBIENTE=2` (homologação). `./iniciar.sh` confere o que falta. A tela NFC-e mostra o ambiente e as pendências. Padrão `simulador`: nada vai à SEFAZ.
+**Como ligar (`.env`)**: `FISCAL_PROVIDER=sefaz`, emitente (`FISCAL_CNPJ/RAZAO/IE/CMUN/...`), `FISCAL_CSC_ID` + `FISCAL_CSC` (gerados no portal da SEFAZ-RS), o arquivo **`certificado.pfx` na raiz do projeto** (ao lado do `.env`; é achado sozinho) e `FISCAL_CERT_SENHA` (`FISCAL_CERT_PATH` só se o arquivo tiver outro nome ou lugar) (A1) e comece com `FISCAL_AMBIENTE=2` (homologação). `./iniciar.sh` confere o que falta. A tela NFC-e mostra o ambiente e as pendências. Padrão `simulador`: nada vai à SEFAZ.
 
 **Testes sem Maven:** `./retaguarda-service/testar-fiscal.sh` (42 verificações: CPF, XML com/sem `<dest>`, assinatura XMLDSig validada, QR Code, cStat 100/237/302, SEFAZ fora/timeout, contingência e transmissão posterior, cancelamento) usando certificado de teste e uma SEFAZ simulada local. Front: `npm test` (`tests/nfg.test.jsx`).
 
@@ -345,6 +364,25 @@ Catálogo em `pdv-web/src/cartoes.js` e `vendas-service/.../Cartoes.java` (mante
 - Regime tributário montado: **Simples Nacional** (CRT 1, ICMSSN102, PIS/COFINS CST 07). Frutas/verduras podem ter tratamento próprio (isenção, CSOSN 400…): confirme **CFOP/CSOSN** com o contador. Regime normal (CRT 3) não está montado.
 - Certificado **A3** (token/cartão) não é lido: use A1 ou um emissor via API. O CSC e o `cIdToken` seguem como configurados (confira zeros à esquerda). Prazo máximo para transmitir a contingência: veja a regra vigente da SEFAZ-RS.
 - Vendas gravadas offline no navegador (fila) ainda não geram NFC-e ao sincronizar: emita em NFC-e › Vendas sem nota.
+
+## NF-e — venda a empresa (modelo 55)
+
+Emissor **separado** da NFC-e, usado só quando a empresa compradora exige nota eletrônica. Menu **🏢 NF-e (venda a empresa)** (supervisor). Backend: `/nfe` no retaguarda (`NfeXml`, `NfeEmissor`, `NfeResource`); mesmo certificado A1, emitente e ambiente da NFC-e, **série própria** (`FISCAL_NFE_SERIE`), não exige CSC.
+
+- **Fluxo:** escolha uma venda paga sem nota e uma empresa (cliente com CNPJ, IE e endereço completos em Cadastros → Clientes) → *Conferir dados* → *Emitir NF-e*. Uma venda não recebe NFC-e e NF-e ao mesmo tempo (409).
+- **Dados da operação:** consumidor final ou revenda, CFOP 5xxx (RS) ou 6xxx (outra UF) automático, frete (modalidade e valor), desconto (rateado por item), pagamento à vista ou **a prazo com duplicatas** (cobr/fat/dup), informações complementares.
+- **Pós-emissão:** cancelar (evento 110111, justificativa ≥ 15 caracteres, dentro do prazo da SEFAZ), **carta de correção** (110110; não corrige valor, imposto, quantidade, destinatário nem datas), DANFE simplificado A4, XML.
+- **Sem comunicação com a SEFAZ:** a nota fica **PENDENTE** (XML assinado guardado) e o botão *Transmitir* reenvia. NF-e não tem contingência offline como a NFC-e.
+- ⚠ **Não verificado:** compilação com Quarkus, transmissão real à SEFAZ, URLs RS de NF-e (confira e use `FISCAL_NFE_URL_*`), `IBSCBSTot`/cClassTrib, tributos aproximados (Lei 12.741). Teste em **homologação** antes de produção.
+
+### Certificado A1 (`certificado.pfx`), assinatura e integração com a SEFAZ
+
+- **Onde fica:** `certificado.pfx` na raiz do projeto (em produção, na pasta `producao/`, ao lado do `.env`; o `gerar-producao.sh` copia). O `iniciar.sh`/`iniciar.bat` mapeiam o arquivo para `FISCAL_CERT_PATH` e `FRUTEIRA_HOME` sozinhos; a senha vai em `FISCAL_CERT_SENHA`. O arquivo e `*.pfx`/`*.p12` estão no `.gitignore`: **nunca** versione o certificado.
+- **Conferência automática:** o sistema lê o certificado e **bloqueia a emissão** se estiver vencido, ainda não vigente, sem uso de assinatura ou com CNPJ de outra empresa (raiz de 8 dígitos diferente do `FISCAL_CNPJ`); avisa 30 dias antes de vencer. Senha errada, arquivo que não é PKCS#12 e arquivo ausente têm mensagem própria. A situação aparece nas telas **NFC-e** e **NF-e** (titular, CNPJ, validade).
+- **Assinatura:** XMLDSig enveloped, C14N, RSA-SHA1/SHA1 (padrão da NF-e 4.00), `Signature` sem prefixo depois de `infNFe`/`infNFeSupl`; a assinatura gerada é **verificada antes do envio** (nunca vai à SEFAZ uma nota que ela rejeitaria por assinatura).
+- **Integração:** SOAP 1.2 com `action` por serviço, TLS com certificado de cliente (mTLS), HTTP/1.1, timeout configurável. O botão **Testar comunicação com a SEFAZ** (NFC-e e NF-e) faz TLS + `consStatServ` (cStat 107 = em operação) sem emitir nada: **faça isso em homologação antes de emitir a primeira nota**. Se o Java recusar o TLS (cadeia ICP-Brasil fora do `cacerts`), use `FISCAL_TRUST_PATH`.
+- **Corrigido nesta revisão:** identificador do CSC no QR Code sem zeros à esquerda (`000001` → `1`); `cNF` nunca igual ao número da nota nem sequencial (rejeição da SEFAZ).
+- ⚠ **Não verificado:** nunca falei com a SEFAZ de verdade (sem certificado ICP-Brasil nem rede aqui): os endereços padrão do RS (`FISCAL_URL_*`, `FISCAL_NFE_URL_*`, `*_STATUS`) e os nomes das operações SOAP são os conhecidos, não conferidos; confirme no portal da SEFAZ-RS (a NFC-e do RS pode estar na SVRS, `nfce.svrs.rs.gov.br`) e sobrescreva no `.env` se preciso.
 
 ## Backup (pendrive ou Google Drive)
 

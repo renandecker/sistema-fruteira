@@ -5,6 +5,8 @@ title Fruteira - Launcher
 
 if not exist ".env" ( echo [ERRO] Arquivo .env nao encontrado ^(copie de .env.example^) & pause & exit /b 1 )
 for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do set "%%A=%%B"
+set "FRUTEIRA_HOME=%~dp0"
+if not defined FISCAL_CERT_PATH if exist "%~dp0certificado.pfx" set "FISCAL_CERT_PATH=%~dp0certificado.pfx"
 if "%APP_ENV%"=="" set "APP_ENV=desenvolvimento"
 if "%USE_NGINX%"=="" set "USE_NGINX=false"
 if /i not "%APP_ENV%"=="desenvolvimento" if /i not "%APP_ENV%"=="producao" ( echo [ERRO] APP_ENV invalido: %APP_ENV% & pause & exit /b 1 )

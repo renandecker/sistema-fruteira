@@ -83,7 +83,7 @@ public class VendaResource {
                 if (!cartao) throw Http.erro(422, "Transação TEF só pode pagar crédito ou débito");
                 if (t == null || !"APROVADA".equals(t.status) || t.vendaId != null) throw Http.erro(422, "Transação TEF inválida ou já utilizada");
                 if (t.valor.compareTo(pr.valor()) != 0) throw Http.erro(422, "O valor difere do aprovado no TEF (R$ " + t.valor + ")");
-                pg.tefId = t.id; pg.nsu = t.nsu; pg.autorizacao = t.autorizacao; pg.bandeira = t.bandeira; pg.adquirente = t.adquirente; pg.cnpjCredenciadora = t.cnpjCredenciadora;
+                pg.tefId = t.id; pg.nsu = t.nsu; pg.autorizacao = t.autorizacao; pg.bandeira = t.bandeira; pg.adquirente = t.adquirente; pg.cnpjCredenciadora = t.cnpjCredenciadora; pg.parcelas = t.parcelas;
                 tefs.add(t);
             } else if (cartao && tefObrigatorio) throw Http.erro(422, "Pagamento em cartão exige transação TEF aprovada");
             if (pr.pixId() != null) {                                  // Pix recebido e confirmado pelo PSP (webhook): confere e vincula

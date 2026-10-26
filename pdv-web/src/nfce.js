@@ -8,14 +8,20 @@ const TPAG = { DINHEIRO: '01', CREDITO: '03', DEBITO: '04', VALE_ALIMENTACAO: '1
 export function montarEmissao(venda, produtos = [], cpf = '', nome = '', cartoes = null) {
   const porId = new Map(produtos.map(p => [p.id, p]))
   const itens = (venda.itens || []).map(i => { const p = porId.get(i.produtoId) || {}
-    return { codigo: String(p.plu ?? i.produtoId), nome: i.nome, ncm: p.ncm || '', unidade: p.unidade || 'UN', qtd: i.quantidade, valorUnit: i.precoUnit, valor: i.subtotal } })
+    return { codigo: String(p.plu ?? i.produtoId), nome: i.nome, ncm: p.ncm || '', unidade: p.unidade || 'UN', qtd: i.quantidade, valorUnit: i.precoUnit, valor: i.subtotal,
+      // classificação fiscal própria do produto (vazio = padrão da loja no .env)
+      cfop: p.cfop || null, cstIcms: p.cstIcms || null, cstPis: p.cstPis || null, cstCofins: p.cstCofins || null, origem: p.origemMercadoria || null,
+      aliqIcms: p.aliqIcms ?? null, aliqPis: p.aliqPis ?? null, aliqCofins: p.aliqCofins ?? null, cstIbsCbs: p.cstIbsCbs || null, cClassTrib: p.cClassTrib || null, pRedIbsCbs: p.pRedIbsCbs ?? null } })
   const pagamentos = (venda.pagamentos || []).map(p => ({ tPag: TPAG[p.meio] || '99', valor: p.valor,
+    parcelas: p.parcelas ?? null,
     ...(p.nsu || p.tefId ? { cnpjCredenciadora: p.cnpjCredenciadora || null, tBand: tBand(p.bandeira), cAut: p.autorizacao || null } : {}) }))
   return { vendaId: venda.id, valor: venda.total, cpf: somenteDigitos(cpf) || null, nome: nome || null, contingencia: typeof navigator !== 'undefined' && !navigator.onLine, cartoes, itens, pagamentos }
 }
 
 const json = (r) => r.ok ? r.json() : r.text().then(t => Promise.reject(t || `HTTP ${r.status}`))
 const H = { 'Content-Type': 'application/json' }
+/** Confere os dados obrigatórios no servidor SEM emitir: { ok, problemas[] }. */
+export const conferirNfce = corpo => fetch('/api/retaguarda/nfce/conferir', { method: 'POST', headers: H, body: JSON.stringify(corpo) }).then(json)
 export const emitirNfce = corpo => fetch('/api/retaguarda/nfce/emitir', { method: 'POST', headers: H, body: JSON.stringify(corpo) }).then(json)
 /** Nota rejeitada por CPF: reenvia com o CPF corrigido (vazio = sem CPF), mantendo o número. */
 export const corrigirCpfNfce = (id, cpf, nome) => fetch(`/api/retaguarda/nfce/corrigir-cpf/${id}`, { method: 'POST', headers: H, body: JSON.stringify({ cpf: somenteDigitos(cpf) || null, nome: nome || null }) }).then(json)

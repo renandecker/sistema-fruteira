@@ -33,6 +33,8 @@ if "%NOVOENV%"=="1" ( powershell -NoProfile -ExecutionPolicy Bypass -File prepar
 if errorlevel 1 ( echo [ERRO] Nao foi possivel preparar o .env & pause & exit /b 1 )
 if /i "%~1"=="--preparar" ( echo Preparacao concluida ^(--preparar^): nada foi iniciado. & exit /b 0 )
 for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do set "%%A=%%B"
+set "FRUTEIRA_HOME=%~dp0"
+if not defined FISCAL_CERT_PATH if exist "%~dp0certificado.pfx" set "FISCAL_CERT_PATH=%~dp0certificado.pfx"
 if "%USE_NGINX%"=="" set "USE_NGINX=false"
 for %%C in (java docker) do ( where %%C >nul 2>nul || ( echo [ERRO] %%C nao encontrado no PATH & pause & exit /b 1 ) )
 if /i not "%USE_NGINX%"=="true" ( where node >nul 2>nul || ( echo [ERRO] node nao encontrado no PATH & pause & exit /b 1 ) )

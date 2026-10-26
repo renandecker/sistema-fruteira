@@ -49,6 +49,7 @@ mkdir -p "$DEST/nginx/certs" "$DEST/keycloak" "$DEST/database"
 cp -r keycloak/. "$DEST/keycloak/"; cp -r nginx/templates nginx/snippets "$DEST/nginx/"; touch "$DEST/nginx/certs/.gitkeep"
 cp retaguarda-service/src/main/resources/db/pre-cadastro/R__pre_cadastro_frutas_verduras.sql "$DEST/database/pre_cadastro_frutas_verduras.sql"   # só para uso manual: os jars já levam as migrations (Flyway)
 cp producao-modelo/* "$DEST/"
+[ -f certificado.pfx ] && [ ! -f "$DEST/certificado.pfx" ] && cp certificado.pfx "$DEST/" && chmod 600 "$DEST/certificado.pfx" 2>/dev/null && echo "✔ certificado.pfx copiado para $DEST (ao lado do .env)"
 cp ssl.sh ssl.bat "$DEST/"
 mkdir -p "$DEST/backup/saida"; for f in backup/*.mjs backup/*.sh backup/*.bat backup/LEIA-ME.txt; do cp "$f" "$DEST/backup/"; done; [ -f "$DEST/backup/backup.env" ] || cp backup/backup.env "$DEST/backup/"   # rotina de backup (nunca sobrescreve backup.env)
 chmod +x "$DEST"/*.sh

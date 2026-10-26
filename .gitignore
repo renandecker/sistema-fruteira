@@ -4,3 +4,7 @@ logs/
 nginx/certs/live/
 nginx/certs/archive/
 nginx/certs/renewal/
+# certificado digital A1 (segredo): nunca no git
+certificado.pfx
+*.pfx
+*.p12

@@ -15,7 +15,7 @@ public class NfceEmissor {
 
     /** @param contingencia true = emite offline (tpEmis 9) sem tentar a SEFAZ; transmitir() envia depois. */
     public Resultado emitir(Dados d, boolean contingencia) throws Exception {
-        OffsetDateTime emi = NfceXml.agora(); int tpEmis = contingencia ? 9 : 1; String cNF = NfceXml.novoCNF();
+        OffsetDateTime emi = NfceXml.agora(); int tpEmis = contingencia ? 9 : 1; String cNF = NfceXml.novoCNF(d.numero());
         String ch = NfceXml.chave(cfg, emi, d.numero(), tpEmis, cNF);
         Resultado r = new Resultado(); r.chave = ch; r.numero = d.numero(); r.tpEmis = tpEmis; r.cNF = cNF; r.urlChave = cfg.urlChave;
         Document doc = SefazClient.parse(NfceXml.montar(cfg, d, ch, emi, tpEmis, cNF));
@@ -40,7 +40,7 @@ public class NfceEmissor {
         return transmitirInterno(r, 2);
     }
 
-    private Resultado transmitirInterno(Resultado r, long lote) throws Exception {
+    Resultado transmitirInterno(Resultado r, long lote) throws Exception {
         SefazClient.Retorno ret;
         try { ret = sefaz.autorizar(semDeclaracao(r.xmlAssinado), lote); }
         catch (IOException | InterruptedException e) {                       // timeout/queda: a SEFAZ pode ter autorizado — consulta antes de decidir
@@ -84,6 +84,6 @@ public class NfceEmissor {
         return r;
     }
 
-    static String semDeclaracao(String xml) { return xml.replaceFirst("^<\\?xml[^>]*\\?>", ""); }
+    public static String semDeclaracao(String xml) { return xml.replaceFirst("^<\\?xml[^>]*\\?>", ""); }
     public BigDecimal total(Dados d) { return NfceXml.totalNF(d); }
 }

@@ -26,17 +26,50 @@ public class NfceResource {
     @Inject Auditor auditor;
     @Inject FiscalConfig fiscal;
 
-    public record ItemIn(String codigo, String nome, String ncm, String unidade, BigDecimal qtd, BigDecimal valorUnit, BigDecimal valor) {}
-    public record PagIn(String tPag, BigDecimal valor, String cnpjCredenciadora, String tBand, String cAut) {}
+    /** Classificação fiscal do produto (opcional: sem ela vale o padrão da loja no .env). */
+    public record ItemIn(String codigo, String nome, String ncm, String unidade, BigDecimal qtd, BigDecimal valorUnit, BigDecimal valor,
+                         String cfop, String cstIcms, String cstPis, String cstCofins, String origem, BigDecimal aliqIcms, BigDecimal aliqPis, BigDecimal aliqCofins,
+                         String cstIbsCbs, String cClassTrib, BigDecimal pRedIbsCbs) {}
+    public record PagIn(String tPag, BigDecimal valor, String cnpjCredenciadora, String tBand, String cAut, Integer parcelas) {}
     public record Emitir(Long vendaId, BigDecimal valor, String cpf, String nome, boolean contingencia, String cartoes, List<ItemIn> itens, List<PagIn> pagamentos) {}
     public record CorrigirCpf(String cpf, String nome) {}
     public record Cancelar(String justificativa) {}
 
-    @GET public List<Nota> listar() { return Nota.find("order by id desc").list(); }
+    @GET public List<Nota> listar() { return Nota.find("modelo is null or modelo = '65' order by id desc").list(); }
 
     @GET @Path("/status")
     public Map<String, Object> status() {
-        return Map.of("provider", fiscal.provider(), "real", fiscal.real(), "ambiente", fiscal.ambiente() == 1 ? "PRODUCAO" : "HOMOLOGACAO", "pendencias", fiscal.real() ? fiscal.pendencias() : List.of());
+        return Map.of("provider", fiscal.provider(), "real", fiscal.real(), "ambiente", fiscal.ambiente() == 1 ? "PRODUCAO" : "HOMOLOGACAO", "pendencias", fiscal.real() ? fiscal.pendencias() : List.of(),
+            "problemasEmitente", fiscal.problemasEmitente().stream().map(Validador.Problema::toString).toList(), "ibsCbs", fiscal.ibsCbsLigado(), "exigeTef", fiscal.configAtual().exigeTef,
+            "certificado", fiscal.real() ? fiscal.certificadoResumo() : Map.of("ok", true, "simulado", true));
+    }
+
+    /** Teste da integração: TLS com o certificado A1 + consStatServ na SEFAZ (cStat 107 = em operação). Não emite nada. */
+    @POST @Path("/sefaz-status")
+    public Map<String, Object> sefazStatus() {
+        if (!fiscal.real()) return Map.of("ok", true, "simulado", true, "mensagem", "Modo simulador: não há SEFAZ a consultar");
+        try {
+            fiscal.emissor();                                                            // valida configuração e certificado
+            var r = new SefazClient(fiscal.configAtual()).statusServico(false);
+            return Map.of("ok", r.cStat() == 107, "cStat", r.cStat(), "mensagem", String.valueOf(r.xMotivo()));
+        } catch (java.io.IOException | InterruptedException e) { return Map.of("ok", false, "mensagem", "Sem comunicação com a SEFAZ: " + e.getMessage()); }
+        catch (Exception e) { return Map.of("ok", false, "mensagem", String.valueOf(e.getMessage())); }
+    }
+
+    public record Conferencia(boolean ok, List<String> problemas) {}
+    /** Confere os dados obrigatórios da venda (itens, destinatário, tributação, pagamento/TEF) e do emitente SEM emitir nada. */
+    @POST @Path("/conferir")
+    public Conferencia conferir(Emitir e) {
+        var l = new ArrayList<String>();
+        fiscal.problemasEmitente().forEach(p -> l.add(p.toString()));
+        if (e == null || e.itens() == null || e.itens().isEmpty()) l.add("Itens: a venda não tem itens");
+        else {
+            Nota tmp = new Nota(); tmp.numero = 1;
+            try { tmp.cpf = Cpf.somenteDigitos(e.cpf()).isEmpty() ? null : Cpf.somenteDigitos(e.cpf()); } catch (Exception ignorada) { tmp.cpf = e.cpf(); }
+            tmp.nome = e.nome();
+            Validador.nota(fiscal.configAtual(), paraDados(tmp, e)).forEach(p -> l.add(p.toString()));
+        }
+        return new Conferencia(l.isEmpty(), l);
     }
 
     @GET @Path("/cpf/{cpf}/validar")
@@ -52,17 +85,34 @@ public class NfceResource {
 
     @POST @Path("/emitir")
     public synchronized Nota emitir(Emitir e) {
-        String cpf; try { cpf = Cpf.normalizarOuNulo(e.cpf()); } catch (IllegalArgumentException ex) { throw Http.erro(422, "CPF inválido"); }
+        String cpf; try { cpf = documentoOuNulo(e.cpf()); } catch (IllegalArgumentException ex) { throw Http.erro(422, ex.getMessage()); }
         Nota n = new Nota();
-        n.vendaId = e.vendaId(); n.valor = e.valor(); n.cpf = cpf; n.nome = e.nome();
+        n.modelo = "65"; n.vendaId = e.vendaId(); n.valor = e.valor(); n.cpf = cpf; n.nome = e.nome();
         n.cartoes = e.cartoes() != null && e.cartoes().length() > 2000 ? e.cartoes().substring(0, 2000) : e.cartoes();
         n.numero = proximoNumero();
         try { n.payload = JSON.writeValueAsString(e); } catch (Exception ex) { /* sem payload: só não reenvia */ }
         if (!fiscal.real()) { simular(n, e.contingencia()); return emitida(n); }
         if (e.itens() == null || e.itens().isEmpty() || e.pagamentos() == null || e.pagamentos().isEmpty())
             throw Http.erro(422, "Para a NFC-e real informe os itens (com NCM) e as formas de pagamento da venda");
+        confirmarDados(n, e);
         emitirReal(n, e.contingencia());
         return emitida(n);
+    }
+
+    /** CPF (11) ou CNPJ (14) do destinatário: vazio = sem identificação; inválido = erro. */
+    static String documentoOuNulo(String s) {
+        String d = Cadastro.digitos(s);
+        if (d.isEmpty()) return null;
+        if (d.length() == 11) { if (!Cpf.valido(d)) throw new IllegalArgumentException("CPF inválido"); return d; }
+        if (d.length() == 14) { if (!Cadastro.cnpjValido(d)) throw new IllegalArgumentException("CNPJ inválido"); return d; }
+        throw new IllegalArgumentException("Documento do destinatário deve ter 11 (CPF) ou 14 (CNPJ) dígitos");
+    }
+
+    /** Antes de gastar um número de nota: confere TODOS os dados obrigatórios e devolve o que corrigir (a venda não se perde: o caixa corrige e reemite). */
+    private void confirmarDados(Nota n, Emitir e) {
+        var l = new ArrayList<Validador.Problema>(fiscal.problemasEmitente());
+        l.addAll(Validador.nota(fiscal.configAtual(), paraDados(n, e)));
+        if (!l.isEmpty()) throw Http.erro(422, Validador.resumo(l));
     }
 
     /** Salva a nota e registra a emissão na auditoria (CPF mascarado). */
@@ -78,7 +128,7 @@ public class NfceResource {
     public synchronized Nota corrigirCpf(@PathParam("id") Long id, CorrigirCpf c) {
         Nota n = achar(id);
         if (!"REJEITADA".equals(n.status)) throw Http.erro(422, "Só é possível corrigir nota rejeitada");
-        String cpf; try { cpf = Cpf.normalizarOuNulo(c == null ? null : c.cpf()); } catch (IllegalArgumentException ex) { throw Http.erro(422, "CPF inválido"); }
+        String cpf; try { cpf = documentoOuNulo(c == null ? null : c.cpf()); } catch (IllegalArgumentException ex) { throw Http.erro(422, ex.getMessage()); }
         String antes = n.cpf; n.cpf = cpf; if (c != null && c.nome() != null) n.nome = c.nome();
         if (!fiscal.real()) { simular(n, false); }
         else emitirReal(n, false);
@@ -137,8 +187,9 @@ public class NfceResource {
     }
 
     static Dados paraDados(Nota n, Emitir e) {
-        List<Dados.Item> itens = e.itens().stream().map(i -> new Dados.Item(i.codigo(), i.nome(), i.ncm(), i.unidade(), i.qtd(), i.valorUnit(), i.valor())).toList();
-        List<Dados.Pag> pags = e.pagamentos().stream().map(p -> new Dados.Pag(p.tPag(), p.valor(), p.cnpjCredenciadora(), p.tBand(), p.cAut())).toList();
+        List<Dados.Item> itens = e.itens().stream().map(i -> new Dados.Item(i.codigo(), i.nome(), i.ncm(), i.unidade(), i.qtd(), i.valorUnit(), i.valor(),
+            i.cfop(), i.cstIcms(), i.cstPis(), i.cstCofins(), i.origem(), i.aliqIcms(), i.aliqPis(), i.aliqCofins(), i.cstIbsCbs(), i.cClassTrib(), i.pRedIbsCbs())).toList();
+        List<Dados.Pag> pags = e.pagamentos().stream().map(p -> new Dados.Pag(p.tPag(), p.valor(), p.cnpjCredenciadora(), p.tBand(), p.cAut(), p.parcelas())).toList();
         return new Dados(n.numero, n.cpf, n.nome, itens, pags);
     }
 
@@ -163,7 +214,7 @@ public class NfceResource {
     private int proximoNumero() {
         return QuarkusTransaction.requiringNew().call(() -> {
             // Panache resolve o nome da entidade interna (entidade com nome explícito, ver Entities.java)
-            Nota ultima = Nota.find("numero is not null order by numero desc").firstResult();
+            Nota ultima = Nota.find("numero is not null and (modelo is null or modelo = '65') order by numero desc").firstResult();
             return Math.max(ultima == null ? 1 : ultima.numero + 1, fiscal.numeroInicial());
         });
     }

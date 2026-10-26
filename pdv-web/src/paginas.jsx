@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { NovoProduto, TECLAS } from './paginas2.jsx'
 import { useLista } from './lib.jsx'
 import { ImagemProduto, SeletorImagem, sugerirImagem } from './catalogoImagens.jsx'
+import { ModalFiscalProduto } from './CadastroFiscal.jsx'
 
 const brl = n => Number(n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const api = (p, o) => fetch(p, { headers: { 'Content-Type': 'application/json' }, ...o }).then(r => r.ok ? r.json().catch(() => ({})) : r.text().then(t => Promise.reject(t)))
@@ -29,7 +30,7 @@ const ncmBadge = p => { const m = NCM_ST[p.ncmStatus] || ['?', '#999', 'NCM aind
 
 export function Produtos() {
   const [lista, recarregar] = useProdutos(true); const [categorias] = useLista('/api/catalogo/categorias'); const [msg, setMsg] = useState('')
-  const [cat, setCat] = useState(''); const [margem, setMargem] = useState(40); const [seletor, setSeletor] = useState(null); const [ncmSt, setNcmSt] = useState({ rodando: false, ultima: null })
+  const [cat, setCat] = useState(''); const [margem, setMargem] = useState(40); const [seletor, setSeletor] = useState(null); const [fiscalDe, setFiscalDe] = useState(null); const [ncmSt, setNcmSt] = useState({ rodando: false, ultima: null })
   const cats = [...new Set(lista.filter(p => p.ativo !== false).map(p => p.categoria).filter(Boolean))]
   const nDesativados = lista.filter(p => p.ativo === false).length
   const usados = lista.filter(p => p.ativo !== false && p.atalho).map(p => p.atalho)
@@ -90,7 +91,8 @@ export function Produtos() {
           title={`${fmtNcm(p.ncm)} — altere e saia do campo para salvar (é conferido nas fontes oficiais)`}
           onBlur={e => { const v = e.target.value; if (v.replace(/\D/g, '') !== (p.ncm || '')) atualizar(p, { ncm: v }, `NCM de "${p.nome}" atualizado e conferido`) }} /> {ncmBadge(p)}</span>}</td>
         <td>{brl(p.custoMedio)}</td><td>{p.taxaPerdaPct}</td><td>{brl(p.precoVarejo)}</td>
-        <td>{p.ativo === false ? <button className="btn sec" onClick={() => reativar(p)}>Reativar</button> : <button className="btn sec" onClick={() => desativar(p)}>Desativar</button>}</td></tr>)}</tbody></table>
+        <td>{p.ativo === false ? <button className="btn sec" onClick={() => reativar(p)}>Reativar</button> : <><button className="btn sec" title="Classificação fiscal da nota: CFOP, CST/CSOSN, PIS/COFINS, IBS/CBS" onClick={() => setFiscalDe(p)}>{p.cfop || p.cstIcms || p.cstPis || p.cClassTrib ? '🧾 Fiscal ✔' : '🧾 Fiscal'}</button> <button className="btn sec" onClick={() => desativar(p)}>Desativar</button></>}</td></tr>)}</tbody></table>
+    {fiscalDe && <ModalFiscalProduto produto={fiscalDe} onFechar={() => setFiscalDe(null)} onSalvo={() => { setFiscalDe(null); recarregar(); setMsg('Classificação fiscal salva') }} />}
     {seletor && <SeletorImagem atual={seletor.imagem} onFechar={() => setSeletor(null)} onEscolher={v => { atualizar(seletor, v, `Imagem de "${seletor.nome}" atualizada`); setSeletor(null) }} />}
   </Pagina>
 }

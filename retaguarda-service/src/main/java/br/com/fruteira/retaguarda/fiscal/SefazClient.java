@@ -22,15 +22,17 @@ public class SefazClient {
 
     public SefazClient(Config cfg) throws Exception {
         this.cfg = cfg; cfg.completarUrls();
-        HttpClient.Builder b = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(cfg.timeoutSeg));
-        if (!cfg.certPath.isBlank()) b.sslContext(sslContext(cfg));
+        HttpClient.Builder b = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(cfg.timeoutSeg));
+        if (Certificado.resolver(cfg.certPath) != null) b.sslContext(sslContext(cfg));
         this.http = b.build();
     }
 
     static SSLContext sslContext(Config c) throws Exception {
         KeyStore ks = KeyStore.getInstance("PKCS12");
         char[] senha = c.certSenha.toCharArray();
-        try (var in = new FileInputStream(c.certPath)) { ks.load(in, senha); }
+        java.io.File arq = Certificado.resolver(c.certPath);
+        if (arq == null) throw new IllegalStateException("Certificado A1 não encontrado (FISCAL_CERT_PATH ou certificado.pfx na raiz)");
+        try (var in = new FileInputStream(arq)) { ks.load(in, senha); }
         KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()); kmf.init(ks, senha);
         TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
         if (c.trustPath.isBlank()) tmf.init((KeyStore) null);                      // cacerts do JDK
@@ -50,28 +52,54 @@ public class SefazClient {
             + "<nfeDadosMsg xmlns=\"http://www.portalfiscal.inf.br/nfe/wsdl/" + servico + "\">" + corpo + "</nfeDadosMsg></soap12:Body></soap12:Envelope>";
     }
 
+    /** NF-e (modelo 55): mesmos serviços, em outros endereços. */
+    public Retorno autorizarNfe(String nfeAssinada, long idLote) throws Exception { return autorizar(cfg.urlNfeAutorizacao, nfeAssinada, idLote); }
+    public Retorno consultarNfe(String chave) throws Exception { return consultar(cfg.urlNfeConsulta, chave); }
+    public Retorno eventoNfe(String envEventoXml) throws Exception { return interpretar(post(cfg.urlNfeEvento, envelope("NFeRecepcaoEvento4", envEventoXml))); }
+
     /** Envia o lote (síncrono, indSinc=1) com uma NFC-e assinada. IOException = sem comunicação (aí vale a contingência). */
-    public Retorno autorizar(String nfeAssinada, long idLote) throws Exception {
+    public Retorno autorizar(String nfeAssinada, long idLote) throws Exception { return autorizar(cfg.urlAutorizacao, nfeAssinada, idLote); }
+    Retorno autorizar(String url, String nfeAssinada, long idLote) throws Exception {
         String lote = "<enviNFe xmlns=\"" + NfceXml.NS + "\" versao=\"4.00\"><idLote>" + idLote + "</idLote><indSinc>1</indSinc>" + nfeAssinada + "</enviNFe>";
-        return interpretar(post(cfg.urlAutorizacao, envelope("NFeAutorizacao4", lote)));
+        return interpretar(post(url, envelope("NFeAutorizacao4", lote)));
     }
 
     /** Consulta a situação da NFC-e pela chave (antes de entrar em contingência após um timeout). */
-    public Retorno consultar(String chave) throws Exception {
+    public Retorno consultar(String chave) throws Exception { return consultar(cfg.urlConsulta, chave); }
+    Retorno consultar(String url, String chave) throws Exception {
         String xml = "<consSitNFe xmlns=\"" + NfceXml.NS + "\" versao=\"4.00\"><tpAmb>" + cfg.tpAmb + "</tpAmb><xServ>CONSULTAR</xServ><chNFe>" + chave + "</chNFe></consSitNFe>";
-        return interpretar(post(cfg.urlConsulta, envelope("NFeConsultaProtocolo4", xml)));
+        return interpretar(post(url, envelope("NFeConsultaProtocolo4", xml)));
     }
 
     /** Envia o evento de cancelamento já assinado (envEvento). */
     public Retorno evento(String envEventoXml) throws Exception { return interpretar(post(cfg.urlEvento, envelope("NFeRecepcaoEvento4", envEventoXml))); }
 
+    /** Operação SOAP de cada serviço 4.00 (vai no parâmetro action do Content-Type SOAP 1.2). */
+    static String acao(String soap) {
+        for (String[] p : new String[][] {{"NFeAutorizacao4", "nfeAutorizacaoLote"}, {"NFeConsultaProtocolo4", "nfeConsultaNF"}, {"NFeRecepcaoEvento4", "nfeRecepcaoEvento"}, {"NFeStatusServico4", "nfeStatusServicoNF"}})
+            if (soap.contains("/wsdl/" + p[0] + "\"")) return "http://www.portalfiscal.inf.br/nfe/wsdl/" + p[0] + "/" + p[1];
+        return null;
+    }
+
     String post(String url, String soap) throws Exception {
+        String acao = acao(soap);
         HttpRequest rq = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(cfg.timeoutSeg))
-            .header("Content-Type", "application/soap+xml; charset=utf-8").POST(HttpRequest.BodyPublishers.ofString(soap, StandardCharsets.UTF_8)).build();
+            .header("Content-Type", "application/soap+xml; charset=utf-8" + (acao == null ? "" : "; action=\"" + acao + "\""))
+            .POST(HttpRequest.BodyPublishers.ofString(soap, StandardCharsets.UTF_8)).build();
         HttpResponse<String> r = http.send(rq, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        if (r.statusCode() >= 500 || r.statusCode() == 404 || r.statusCode() == 403)
-            throw new java.io.IOException("SEFAZ respondeu HTTP " + r.statusCode());
+        int sc = r.statusCode();
+        if (sc >= 500 || sc == 404 || sc == 403 || sc == 408 || sc == 429) throw new java.io.IOException("SEFAZ respondeu HTTP " + sc);      // indisponível: vale contingência/pendência
+        if (sc / 100 != 2 && !r.body().contains("cStat")) {                                                                                     // 400/401/415...: erro nosso, não da disponibilidade
+            String b = r.body().replaceAll("\\s+", " "); throw new IllegalStateException("SEFAZ recusou a requisição (HTTP " + sc + "): " + (b.length() > 300 ? b.substring(0, 300) : b));
+        }
         return r.body();
+    }
+
+    /** Situação do serviço da SEFAZ (consStatServ): prova que o certificado A1, o TLS e a URL funcionam, sem emitir nada. cStat 107 = em operação. */
+    public Retorno statusServico(boolean nfe) throws Exception {
+        String url = nfe ? cfg.urlNfeStatus : cfg.urlStatus;
+        String xml = "<consStatServ xmlns=\"" + NfceXml.NS + "\" versao=\"4.00\"><tpAmb>" + cfg.tpAmb + "</tpAmb><cUF>" + cfg.cUF + "</cUF><xServ>STATUS</xServ></consStatServ>";
+        return interpretar(post(url, envelope("NFeStatusServico4", xml)));
     }
 
     static Document parse(String xml) throws Exception {

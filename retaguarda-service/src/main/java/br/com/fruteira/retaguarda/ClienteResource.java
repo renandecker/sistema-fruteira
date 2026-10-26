@@ -5,6 +5,8 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
+import br.com.fruteira.retaguarda.fiscal.Cadastro;
+import br.com.fruteira.retaguarda.fiscal.Cpf;
 import java.math.*;
 import java.time.LocalDate;
 import java.util.*;
@@ -17,12 +19,40 @@ public class ClienteResource {
     @GET public List<Cliente> listar(@QueryParam("inativos") boolean inativos) {
         return inativos && auditor.ehGerente() ? Cliente.<Cliente>listAll() : Cliente.<Cliente>list("ativo", true);
     }
+    /** Documento (CPF ou CNPJ) e cadastro completo: confere dígitos verificadores, Inscrição Estadual e endereço (se informado, completo). */
+    private static void conferirCadastro(Cliente c, boolean novo) {
+        if (c.nome == null || c.nome.isBlank()) throw new WebApplicationException("Informe o nome do cliente", 422);
+        if (novo) {
+            String doc = Cadastro.digitos(c.cpf);
+            if (doc.length() == 11) { if (!Cpf.valido(doc)) throw new WebApplicationException("CPF inválido", 422); c.tipo = "PF"; }
+            else if (doc.length() == 14) { if (!Cadastro.cnpjValido(doc)) throw new WebApplicationException("CNPJ inválido", 422); c.tipo = "PJ"; }
+            else throw new WebApplicationException("Informe o CPF (11 dígitos) ou o CNPJ (14 dígitos) do cliente", 422);
+            c.cpf = doc;
+        }
+        c.nome = c.nome.trim(); c.ie = CadastroFiscal.vz(c.ie); c.email = CadastroFiscal.vz(c.email);
+        if (c.email != null && !c.email.matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")) throw new WebApplicationException("E-mail inválido", 422);
+        CadastroFiscal.exigirEndereco("Cliente", c.logradouro, c.numero, c.bairro, c.municipio, c.cMun, c.uf, c.cep);
+        CadastroFiscal.exigirIe(c.ie, c.uf);
+        if (c.cep != null) c.cep = Cadastro.digitos(c.cep);
+        if (c.cMun != null) c.cMun = Cadastro.digitos(c.cMun);
+        if (c.uf != null) c.uf = c.uf.trim().toUpperCase();
+    }
     @POST @Transactional public Cliente criar(Cliente c) {
+        conferirCadastro(c, true);
         Cliente ex = Cliente.find("cpf", c.cpf).firstResult();
         if (ex != null) throw new WebApplicationException(Boolean.FALSE.equals(ex.ativo)
             ? "CPF pertence a um cliente desativado (somente o gerente pode reativar)" : "CPF já cadastrado", 409);
         c.ativo = true; c.persist();
         auditor.registrar("CADASTRO", "Cliente", c.id, "Cliente cadastrado: " + c.nome, null, c);
+        return c;
+    }
+    /** Atualiza o cadastro (nome, telefone, e-mail, IE e endereço). Documento, cashback e limite do caderno não mudam por aqui. */
+    @PUT @Path("/{id}") @Transactional public Cliente atualizar(@PathParam("id") Long id, Cliente in) {
+        Cliente c = porId(id); String antes = auditor.snap(c);
+        c.nome = in.nome; c.telefone = in.telefone; c.email = in.email; c.ie = in.ie; c.logradouro = in.logradouro; c.numero = in.numero; c.bairro = in.bairro;
+        c.municipio = in.municipio; c.cMun = in.cMun; c.uf = in.uf; c.cep = in.cep;
+        conferirCadastro(c, false);
+        auditor.registrar("EDICAO", "Cliente", id, "Cadastro do cliente alterado: " + c.nome, antes, c);
         return c;
     }
     @GET @Path("/cpf/{cpf}") public Cliente porCpf(@PathParam("cpf") String cpf) { return achar(cpf); }

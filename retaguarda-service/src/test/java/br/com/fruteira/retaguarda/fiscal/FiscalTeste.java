@@ -138,12 +138,12 @@ public class FiscalTeste {
         if (falhas > 0) System.exit(1);
     }
 
-    static String retorno(int cStat, String motivo, String nProt) {
+    public static String retorno(int cStat, String motivo, String nProt) {
         String prot = "<protNFe versao=\"4.00\"><infProt><tpAmb>2</tpAmb><chNFe>x</chNFe><dhRecbto>2026-10-13T10:00:00-03:00</dhRecbto>" + (nProt != null ? "<nProt>" + nProt + "</nProt>" : "") + "<cStat>" + cStat + "</cStat><xMotivo>" + motivo + "</xMotivo></infProt></protNFe>";
         return "<soap:Envelope xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\"><soap:Body><nfeResultMsg><retEnviNFe xmlns=\"http://www.portalfiscal.inf.br/nfe\" versao=\"4.00\"><tpAmb>2</tpAmb><cStat>104</cStat><xMotivo>Lote processado</xMotivo>" + prot + "</retEnviNFe></nfeResultMsg></soap:Body></soap:Envelope>";
     }
 
-    static boolean assinaturaValida(String xml) throws Exception {
+    public static boolean assinaturaValida(String xml) throws Exception {
         Document d = SefazClient.parse(xml);
         ((Element) d.getElementsByTagNameNS("*", "infNFe").item(0)).setIdAttribute("Id", true);
         Node sig = d.getElementsByTagNameNS(XMLSignature.XMLNS, "Signature").item(0);
@@ -151,5 +151,5 @@ public class FiscalTeste {
         ctx.setProperty("org.jcp.xml.dsig.secureValidation", Boolean.FALSE);          // o padrão da NF-e usa SHA-1
         return XMLSignatureFactory.getInstance("DOM").unmarshalXMLSignature(ctx).validate(ctx);
     }
-    static String cert;
+    public static String cert;
 }

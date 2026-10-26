@@ -8,6 +8,9 @@ import { agente, cartoesTexto } from './tef.js'
 import { montarEmissao, emitirNfce, corrigirCpfNfce, situacaoNota } from './nfce.js'
 import { mascaraCpf, statusCpf } from './cpf.js'
 import { Danfe } from './Danfe.jsx'
+import CertificadoSefaz from './CertificadoSefaz.jsx'
+import { CamposFiscais, ModalCadastro } from './CadastroFiscal.jsx'
+import { mascaraDoc, docValido, problemasProduto, problemasCliente, problemasFornecedor, listarProblemas } from './fiscal.js'
 import { codificarEtiqueta, formatoEtiqueta } from './etiqueta.js'
 import { ImagemProduto, SeletorImagem, IconeFruta, CATALOGO, sugerirImagem } from './catalogoImagens.jsx'
 
@@ -62,22 +65,27 @@ export function NovoProduto({ onSave, usados = [], categorias = [] }) {
 
 export function Fornecedores() {
   const [l, c] = useLista(R + '/fornecedores?inativos=true'); const ini = { nome: '', documento: '', tipo: 'CEASA', telefone: '' }
-  const [f, s, setF] = useForm(ini); const [msg, setMsg] = useState('')
+  const [f, s, setF] = useForm(ini); const [msg, setMsg] = useState(''); const [edit, setEdit] = useState(null)
+  const setCampo = (k, v) => setF({ ...f, [k]: v })
   const erro = e => setMsg(String(e) || 'Operação não permitida')
   const add = () => post(R + '/fornecedores', f).then(() => { setF(ini); c() }).catch(erro)
   const desativar = x => window.confirm(`Desativar o fornecedor "${x.nome}"?\n${nota}`) && api(`${R}/fornecedores/${x.id}`, { method: 'DELETE' }).then(c).catch(erro)
   const reativar = x => post(`${R}/fornecedores/${x.id}/reativar`).then(c).catch(erro)
   return <Pagina titulo="🚚 Fornecedores"><Aviso m={msg} />
-    <div className="barra"><input placeholder="Nome" value={f.nome} onChange={s('nome')} /><input placeholder="CNPJ/CPF" value={f.documento} onChange={s('documento')} />
+    <div className="barra"><input placeholder="Nome / razão social" value={f.nome} onChange={s('nome')} /><input placeholder="CNPJ (ou CPF de produtor rural)" aria-label="CNPJ ou CPF do fornecedor" value={f.documento} onChange={e => setCampo('documento', mascaraDoc(e.target.value))} className={f.documento && !docValido(f.documento) && String(f.documento).replace(/\D/g, '').length >= 11 ? 'cpf-invalido' : ''} />
       <select value={f.tipo} onChange={s('tipo')}><option value="CEASA">CEASA</option><option value="PRODUTOR_RURAL">Produtor rural</option><option value="EMPRESA">Empresa</option></select>
-      <input placeholder="Telefone" value={f.telefone} onChange={s('telefone')} /><button className="btn" disabled={!f.nome} onClick={add}>Adicionar</button></div>
-    <table className="tab"><thead><tr><th>Nome</th><th>Documento</th><th>Tipo</th><th>Telefone</th><th>Situação</th><th></th></tr></thead>
-      <tbody>{l.map(x => <tr key={x.id} className={x.ativo === false ? 'inativo' : ''}><td>{x.nome}</td><td>{x.documento}</td><td>{x.tipo}</td><td>{x.telefone}</td>
-        <td>{x.ativo === false ? <Selo x={x} /> : 'Ativo'}</td><td><BtnAtivo x={x} onDesativar={desativar} onReativar={reativar} /></td></tr>)}</tbody></table></Pagina>
+      <input placeholder="Telefone" value={f.telefone} onChange={s('telefone')} /><button className="btn" disabled={!f.nome || !docValido(f.documento)} onClick={add}>Adicionar</button></div>
+    <CamposFiscais f={f} set={setCampo} comIm />
+    <table className="tab"><thead><tr><th>Nome</th><th>CNPJ/CPF</th><th>IE</th><th>Tipo</th><th>Cadastro fiscal</th><th>Situação</th><th></th></tr></thead>
+      <tbody>{l.map(x => <tr key={x.id} className={x.ativo === false ? 'inativo' : ''}><td>{x.nome}</td><td>{mascaraDoc(x.documento)}</td><td>{x.ie}</td><td>{x.tipo}</td>
+        <td>{problemasFornecedor(x).length ? <button className="btn sec" title={problemasFornecedor(x).join(' · ')} onClick={() => setEdit(x)}>⚠ completar</button> : <button className="btn sec" onClick={() => setEdit(x)}>✔ ver</button>}</td>
+        <td>{x.ativo === false ? <Selo x={x} /> : 'Ativo'}</td><td><BtnAtivo x={x} onDesativar={desativar} onReativar={reativar} /></td></tr>)}</tbody></table>
+    {edit && <ModalCadastro tipo="fornecedor" item={edit} onFechar={() => setEdit(null)} onSalvo={() => { setEdit(null); c() }} />}</Pagina>
 }
 
 export function Clientes() {
-  const [l, c] = useLista(R + '/clientes?inativos=true'); const ini = { nome: '', cpf: '', telefone: '' }; const [f, s, setF] = useForm(ini); const [msg, setMsg] = useState('')
+  const [l, c] = useLista(R + '/clientes?inativos=true'); const ini = { nome: '', cpf: '', telefone: '' }; const [f, s, setF] = useForm(ini); const [msg, setMsg] = useState(''); const [edit, setEdit] = useState(null)
+  const setCampo = (k, v) => setF({ ...f, [k]: v })
   const erro = (e, padrao) => setMsg(String(e) || padrao || 'Operação não permitida')
   const add = () => post(R + '/clientes', f).then(() => { setF(ini); c(); setMsg('') }).catch(e => erro(e, 'Não foi possível cadastrar (CPF já cadastrado ou de cliente desativado).'))
   const desativar = x => window.confirm(`Desativar o cliente "${x.nome}"?\n${nota}`) && api(`${R}/clientes/${x.id}`, { method: 'DELETE' }).then(c).catch(erro)
@@ -90,13 +98,15 @@ export function Clientes() {
     api(`${R}/clientes/${x.id}/limite-caderno`, { method: 'PUT', body: JSON.stringify({ limite: valor }) }).then(c).catch(erro)
   }
   return <Pagina titulo="👥 Clientes e fidelidade"><Aviso m={msg} />
-    <div className="barra"><input placeholder="Nome" value={f.nome} onChange={s('nome')} /><input placeholder="CPF (só números)" value={f.cpf} onChange={s('cpf')} />
-      <input placeholder="WhatsApp com DDD" value={f.telefone} onChange={s('telefone')} /><button className="btn" disabled={!f.nome || !f.cpf} onClick={add}>Cadastrar</button>
-      <small>Cashback: 2% de cada compra identificada pelo CPF no caixa. Cliente desativado não acumula nem resgata.</small></div>
-    <table className="tab"><thead><tr><th>Nome</th><th>CPF</th><th>WhatsApp</th><th>Cashback</th><th>Limite do caderno</th><th>Situação</th><th></th></tr></thead>
-      <tbody>{l.map(x => <tr key={x.id} className={x.ativo === false ? 'inativo' : ''}><td>{x.nome}</td><td>{x.cpf}</td><td>{x.telefone}</td><td><b>{brl(x.cashback)}</b></td>
+    <div className="barra"><input placeholder="Nome" value={f.nome} onChange={s('nome')} /><input placeholder="CPF ou CNPJ" aria-label="CPF ou CNPJ do cliente" value={f.cpf} onChange={e => setCampo('cpf', mascaraDoc(e.target.value))} className={f.cpf && !docValido(f.cpf) && String(f.cpf).replace(/\D/g, '').length >= 11 ? 'cpf-invalido' : ''} />
+      <input placeholder="WhatsApp com DDD" value={f.telefone} onChange={s('telefone')} /><button className="btn" disabled={!f.nome || !docValido(f.cpf)} onClick={add}>Cadastrar</button>
+      <small>Cashback: 2% de cada compra identificada pelo CPF no caixa. Cliente desativado não acumula nem resgata. Empresa (CNPJ): preencha também IE e endereço.</small></div>
+    <CamposFiscais f={f} set={setCampo} />
+    <table className="tab"><thead><tr><th>Nome</th><th>CPF/CNPJ</th><th>Cadastro</th><th>WhatsApp</th><th>Cashback</th><th>Limite do caderno</th><th>Situação</th><th></th></tr></thead>
+      <tbody>{l.map(x => <tr key={x.id} className={x.ativo === false ? 'inativo' : ''}><td>{x.nome}</td><td>{mascaraDoc(x.cpf)}</td><td>{problemasCliente(x).length ? <button className="btn sec" title={problemasCliente(x).join(' · ')} onClick={() => setEdit(x)}>⚠ completar</button> : <button className="btn sec" onClick={() => setEdit(x)}>✎</button>}</td><td>{x.telefone}</td><td><b>{brl(x.cashback)}</b></td>
         <td>{x.limiteCaderno != null ? brl(x.limiteCaderno) : <small>padrão</small>} <button className="btn sec" title="Somente o gerente altera o limite do caderno (fiado)" onClick={() => limite(x)}>✎</button></td>
-        <td>{x.ativo === false ? <Selo x={x} /> : 'Ativo'}</td><td><BtnAtivo x={x} onDesativar={desativar} onReativar={reativar} /></td></tr>)}</tbody></table></Pagina>
+        <td>{x.ativo === false ? <Selo x={x} /> : 'Ativo'}</td><td><BtnAtivo x={x} onDesativar={desativar} onReativar={reativar} /></td></tr>)}</tbody></table>
+    {edit && <ModalCadastro tipo="cliente" item={edit} onFechar={() => setEdit(null)} onSalvo={() => { setEdit(null); c() }} />}</Pagina>
 }
 
 /* ---------- Estoque / Compras ---------- */
@@ -243,6 +253,9 @@ export function Dre() {
 export function Nfce() {
   const [notas, cn] = useLista(R + '/nfce'); const [vendas] = useLista('/api/vendas/vendas?limit=30'); const [produtos] = useProdutos(); const [msg, setMsg] = useState('')
   const [st, setSt] = useState(null); const [reimp, setReimp] = useState(null); const [corrigindo, setCorrigindo] = useState(null); const [cpfNovo, setCpfNovo] = useState('')
+  const [clientes] = useLista(R + '/clientes'); const [fornecedores] = useLista(R + '/fornecedores')
+  const pProd = listarProblemas(produtos, p => `${p.plu ?? ''} ${p.nome}`, problemasProduto), pCli = listarProblemas(clientes, c => c.nome, problemasCliente), pForn = listarProblemas(fornecedores, f => f.nome, problemasFornecedor)
+  const pEmit = st?.problemasEmitente || []; const tudoOk = st && !pEmit.length && !pProd.length && !pCli.length && !pForn.length
   useEffect(() => { api(R + '/nfce/status').then(setSt).catch(() => {}) }, [])
   const emitidas = new Set(notas.map(n => n.vendaId)); const act = (p, o) => post(p, o).then(cn).catch(e => setMsg(String(e)))
   const cor = { AUTORIZADA: 'var(--verde)', CONTINGENCIA: '#e0a100', CANCELADA: 'var(--vermelho)', REJEITADA: 'var(--vermelho)', DENEGADA: 'var(--vermelho)' }
@@ -253,6 +266,15 @@ export function Nfce() {
   return <Pagina titulo="🧮 NFC-e / Nota Fiscal Gaúcha"><Aviso m={msg} />
     {st && !st.real && <div className="msg" style={{ margin: '0 0 12px' }}>⚠ Emissão <b>simulada</b> (FISCAL_PROVIDER=simulador): chave e protocolo fictícios, sem valor fiscal. Para emitir de verdade configure FISCAL_PROVIDER=sefaz, o certificado A1 e o CSC no .env (ver README).</div>}
     {st?.real && <div className="msg" style={{ margin: '0 0 12px' }}>SEFAZ-RS · ambiente <b>{st.ambiente}</b>{st.pendencias?.length > 0 && <> · ⚠ faltam: {st.pendencias.join(', ')}</>}</div>}
+    <CertificadoSefaz st={st} base={R + '/nfce'} />
+    {st && <div className={`conf-fiscal ${tudoOk ? 'ok' : ''}`} role="status" aria-label="Conferência fiscal">
+      <b>{tudoOk ? '✔ Conferência fiscal: dados obrigatórios completos' : '⚠ Conferência fiscal: corrija antes de emitir (nota rejeitada gera multa e retrabalho)'}</b>
+      {st.ibsCbs && <small style={{ display: 'block' }}>IBS/CBS (reforma tributária) ligado nas notas desta loja.</small>}
+      {st.exigeTef && <small style={{ display: 'block' }}>Cartão só entra na nota com os dados do TEF (CNPJ da credenciadora, bandeira e autorização).</small>}
+      {pEmit.length > 0 && <><div>Emitente (loja), no .env:</div><ul>{pEmit.map(x => <li key={x}>{x}</li>)}</ul></>}
+      {pProd.length > 0 && <><div>Produtos ({pProd.length}) — Cadastros → Produtos e preços:</div><ul>{pProd.slice(0, 8).map(x => <li key={x.quem}>{x.quem}: {x.problemas.join(', ')}</li>)}{pProd.length > 8 && <li>… e mais {pProd.length - 8}</li>}</ul></>}
+      {pCli.length > 0 && <><div>Clientes ({pCli.length}) — Cadastros → Clientes:</div><ul>{pCli.slice(0, 8).map(x => <li key={x.quem}>{x.quem}: {x.problemas.join(', ')}</li>)}</ul></>}
+      {pForn.length > 0 && <><div>Fornecedores ({pForn.length}) — Cadastros → Fornecedores:</div><ul>{pForn.slice(0, 8).map(x => <li key={x.quem}>{x.quem}: {x.problemas.join(', ')}</li>)}</ul></>}</div>}
     <h3>Vendas sem nota</h3>
     <table className="tab"><thead><tr><th>Venda</th><th>Data</th><th>Total</th><th>CPF</th><th></th></tr></thead>
       <tbody>{vendas.filter(v => v.status === 'PAGA' && !emitidas.has(v.id)).map(v => <tr key={v.id}><td>#{v.id}</td><td>{new Date(v.data).toLocaleString('pt-BR')}</td><td>{brl(v.total)}</td><td>{v.cpf ? mascaraCpf(v.cpf) : '—'}</td>

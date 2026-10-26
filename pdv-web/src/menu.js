@@ -34,6 +34,7 @@ export const MENU = [
     { id: 'saude', icone: '🩺', titulo: 'Saúde dos pagamentos', status: 'ok', perfil: 'supervisor', desc: 'Verificação de hora em hora do Pix e do TEF definidos no .env.' },
     { id: 'dre', icone: '📊', titulo: 'DRE e fluxo de caixa', status: 'ok', perfil: 'gerente', desc: 'DRE simplificado e fluxo diário/mensal.' },
     { id: 'nfce', icone: '🧮', titulo: 'NFC-e / SAT', status: 'ok', perfil: 'supervisor', desc: 'Emissão, contingência offline, cancelamento e reenvio.' },
+    { id: 'nfe', icone: '🏢', titulo: 'NF-e (venda a empresa)', status: 'ok', perfil: 'supervisor', desc: 'Nota fiscal eletrônica (modelo 55) para empresa que exige NF-e: frete, duplicatas, cancelamento e carta de correção.' },
   ]},
   { grupo: 'Relatórios', itens: [
     { id: 'relclientes', icone: '🧑‍🤝‍🧑', titulo: 'Clientes: compras e dívidas', status: 'ok', perfil: 'gerente', desc: 'Quem mais compra, ticket médio, total comprado e quem está devendo no caderno.' },

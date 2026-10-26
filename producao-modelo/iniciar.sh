@@ -4,6 +4,8 @@
 #   USE_NGINX=false -> front por servidor-web.mjs em http://localhost:5173 (sem HTTPS)
 set -u
 cd "$(dirname "$0")"
+export FRUTEIRA_HOME="$PWD"      # certificado A1: certificado.pfx nesta pasta (ao lado do .env) ou FISCAL_CERT_PATH
+[ -z "${FISCAL_CERT_PATH:-}" ] && [ -f "$PWD/certificado.pfx" ] && export FISCAL_CERT_PATH="$PWD/certificado.pfx"
 mkdir -p logs; PIDS=()
 # ---------- 1) arquivos necessários: se faltar nesta pasta, procura na raiz do projeto (pasta acima) ----------
 RAIZ="$(cd .. 2>/dev/null && pwd)"

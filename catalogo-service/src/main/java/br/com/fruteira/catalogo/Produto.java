@@ -25,6 +25,15 @@ public class Produto extends PanacheEntity {
     public String categoria;                 // folhosas, frutas de época...
     public String fotoUrl;                   // botão touch com foto
     public String ncm;
+    // Classificação fiscal própria (opcional: vazio = vale o padrão da loja no .env). Usada na NFC-e: CFOP, CST/CSOSN, origem, PIS/COFINS e IBS/CBS.
+    @Column(length = 4) public String cfop;               // 5102, 5405... (venda a consumidor final na UF)
+    @Column(length = 3) public String cstIcms;            // CSOSN (Simples: 102, 103, 300, 400, 500) ou CST (regime normal: 00, 40, 41, 50, 60)
+    @Column(length = 1) public String origemMercadoria;   // 0 nacional ... 8
+    @Column(length = 2) public String cstPis, cstCofins;  // 01/02 tributado · 04 a 09 não tributado · 49/99 outras
+    public BigDecimal aliqIcms, aliqPis, aliqCofins;      // % (só quando o CST tributa)
+    @Column(length = 3) public String cstIbsCbs;          // CST do IBS/CBS (tabela oficial, 3 dígitos)
+    @Column(length = 6) public String cClassTrib;         // classificação tributária do IBS/CBS (tabela oficial, 6 dígitos)
+    public BigDecimal pRedIbsCbs;                          // redução de alíquota do IBS/CBS (%) quando a classificação prevê
     // Verificação do NCM (BrasilAPI / tabela oficial do Siscomex) — a NFC-e exige NCM de 8 dígitos válido e vigente em cada item
     @Column(length = 20) public String ncmStatus;      // VALIDO | INVALIDO | VENCIDO | AUSENTE | NAO_VERIFICADO
     @Column(length = 500) public String ncmDescricao;

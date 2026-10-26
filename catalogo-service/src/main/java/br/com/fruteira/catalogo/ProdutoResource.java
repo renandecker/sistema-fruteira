@@ -77,6 +77,36 @@ public class ProdutoResource {
         auditor.registrar("DESATIVACAO", "Produto", id, "Produto desativado: " + p.nome, null, null);
         return p;
     }
+    public record Fiscal(String cfop, String cstIcms, String origemMercadoria, String cstPis, String cstCofins, BigDecimal aliqIcms, BigDecimal aliqPis, BigDecimal aliqCofins,
+                         String cstIbsCbs, String cClassTrib, BigDecimal pRedIbsCbs) {}
+    private static final java.util.Set<String> CST_ICMS = java.util.Set.of("102", "103", "300", "400", "500", "00", "40", "41", "50", "60");
+    private static final java.util.Set<String> CST_PIS = java.util.Set.of("01", "02", "04", "05", "06", "07", "08", "09", "49", "99");
+    private static String vz(String s) { return s == null || s.isBlank() ? null : s.trim(); }
+    private static BigDecimal pct(BigDecimal v, String nome) {
+        if (v == null) return null;
+        if (v.signum() < 0 || v.compareTo(new BigDecimal("100")) > 0) throw new WebApplicationException(nome + " deve ficar entre 0 e 100", 422);
+        return v;
+    }
+    /** Classificação fiscal do produto (NFC-e): vazio em um campo = vale o padrão da loja. Confere formato e coerência (CST tributado exige alíquota). */
+    @PUT @Path("/{id}/fiscal") @Transactional public Produto fiscal(@PathParam("id") Long id, Fiscal f) {
+        Produto p = buscar(id); String antes = auditor.snap(p);
+        String cfop = vz(f.cfop()), ic = vz(f.cstIcms()), or = vz(f.origemMercadoria()), cp = vz(f.cstPis()), cc = vz(f.cstCofins()), ci = vz(f.cstIbsCbs()), cl = vz(f.cClassTrib());
+        if (cfop != null && !cfop.matches("5\\d{3}")) throw new WebApplicationException("CFOP deve ter 4 dígitos e começar por 5 (venda a consumidor final dentro do estado), ex.: 5102", 422);
+        if (ic != null && !CST_ICMS.contains(ic)) throw new WebApplicationException("CST/CSOSN do ICMS inválido: " + ic + " (Simples: 102, 103, 300, 400, 500 · regime normal: 00, 40, 41, 50, 60)", 422);
+        if (or != null && !or.matches("[0-8]")) throw new WebApplicationException("Origem da mercadoria deve ser de 0 a 8", 422);
+        if (cp != null && !CST_PIS.contains(cp)) throw new WebApplicationException("CST do PIS inválido: " + cp, 422);
+        if (cc != null && !CST_PIS.contains(cc)) throw new WebApplicationException("CST da COFINS inválido: " + cc, 422);
+        if (ci != null && !ci.matches("\\d{3}")) throw new WebApplicationException("CST do IBS/CBS deve ter 3 dígitos (tabela oficial)", 422);
+        if (cl != null && !cl.matches("\\d{6}")) throw new WebApplicationException("cClassTrib deve ter 6 dígitos (tabela oficial)", 422);
+        if ((ci == null) != (cl == null)) throw new WebApplicationException("Informe o CST e o cClassTrib do IBS/CBS juntos (ou nenhum dos dois)", 422);
+        BigDecimal ai = pct(f.aliqIcms(), "Alíquota do ICMS"), ap = pct(f.aliqPis(), "Alíquota do PIS"), ac = pct(f.aliqCofins(), "Alíquota da COFINS"), red = pct(f.pRedIbsCbs(), "Redução do IBS/CBS");
+        if ("00".equals(ic) && (ai == null || ai.signum() <= 0)) throw new WebApplicationException("ICMS tributado (CST 00) exige a alíquota do ICMS", 422);
+        if (("01".equals(cp) || "02".equals(cp)) && (ap == null || ap.signum() <= 0)) throw new WebApplicationException("PIS tributado exige a alíquota do PIS", 422);
+        if (("01".equals(cc) || "02".equals(cc)) && (ac == null || ac.signum() <= 0)) throw new WebApplicationException("COFINS tributada exige a alíquota da COFINS", 422);
+        p.cfop = cfop; p.cstIcms = ic; p.origemMercadoria = or; p.cstPis = cp; p.cstCofins = cc; p.aliqIcms = ai; p.aliqPis = ap; p.aliqCofins = ac; p.cstIbsCbs = ci; p.cClassTrib = cl; p.pRedIbsCbs = red;
+        auditor.registrar("EDICAO", "Produto", id, "Classificação fiscal alterada: " + p.nome, antes, p);
+        return p;
+    }
     @POST @Path("/{id}/reativar") @Transactional
     public Produto reativar(@PathParam("id") Long id) {
         if (!auditor.ehGerente()) throw new ForbiddenException("Somente o gerente pode reativar");
