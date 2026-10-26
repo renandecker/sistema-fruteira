@@ -13,6 +13,3 @@ for porta in $PORTAS; do
     echo "Parado processo $pid na porta $porta"
   done
 done
-if [ -f docker-compose.prod.yml ] && command -v docker >/dev/null && docker compose -f docker-compose.prod.yml --profile nginx ps -q 2>/dev/null | grep -q .; then
-  docker compose -f docker-compose.prod.yml --profile nginx stop && echo "PostgreSQL/Keycloak parados"
-fi

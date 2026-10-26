@@ -15,5 +15,6 @@ public class MovimentoCaixa extends PanacheEntity {
     @Column(length = 200) public String motivo;
     public String operador;
     public LocalDateTime data = LocalDateTime.now();
+    @Column(length = 255) public String aprovacao;     // sangria aprovada pelo supervisor (PIN) quando a aprovação está ligada
     public boolean acimaDoSaldo;                       // sangria maior que o saldo do sistema (só o gerente vê)
 }

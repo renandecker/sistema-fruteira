@@ -58,3 +58,54 @@ test('gerente vê esperado, contado, diferença e o alerta de sangria acima do s
   expect(container.textContent).toMatch(/650,00/); expect(container.textContent).toMatch(/640,00/); expect(container.textContent).toMatch(/-R\$\s?10,00|R\$\s?-10,00|-10,00/)
   expect(container.querySelector('[title*="maior que o saldo"]')).not.toBeNull()
 })
+
+describe('aprovação do supervisor na sangria', () => {
+  const cfgDe = c => { const f = globalThis.fetch; globalThis.fetch = vi.fn(async (url, o) => url.endsWith('/caixa/configuracao') && (!o || !o.method) ? resp(c) : f(url, o)) }
+
+  test('desligada (padrão): a sangria não pede PIN', async () => {
+    cfgDe({ sangriaExigeAprovacao: false, precisaAprovacao: false, podeConfigurar: false })
+    render(<Caixa />); fireEvent.click(await screen.findByText(/💰 Sangria$/))
+    fireEvent.change(await screen.findByLabelText(/Valor contado/), { target: { value: '200' } })
+    expect(screen.queryByLabelText('PIN do supervisor')).toBeNull()
+    fireEvent.click(screen.getByText(/Confirmar/))
+    await waitFor(() => expect(posts('/caixa/sangria').length).toBe(1))
+    expect(posts('/caixa/sangria')[0].o.headers?.['X-Supervisor-Pin']).toBeUndefined()
+  })
+
+  test('ligada: o operador precisa do PIN do supervisor, que vai no cabeçalho', async () => {
+    cfgDe({ sangriaExigeAprovacao: true, precisaAprovacao: true, podeConfigurar: false })
+    render(<Caixa />); fireEvent.click(await screen.findByText(/💰 Sangria$/))
+    fireEvent.change(await screen.findByLabelText(/Valor contado/), { target: { value: '200' } })
+    const pin = await screen.findByLabelText('PIN do supervisor')
+    expect(screen.getByText(/Confirmar/).closest('button').disabled).toBe(true)
+    fireEvent.change(pin, { target: { value: '9876' } })
+    fireEvent.click(screen.getByText(/Confirmar/))
+    await waitFor(() => expect(posts('/caixa/sangria').length).toBe(1))
+    expect(posts('/caixa/sangria')[0].o.headers['X-Supervisor-Pin']).toBe('9876')
+    expect(JSON.parse(posts('/caixa/sangria')[0].o.body)).toEqual({ valor: 200, motivo: '' })
+  })
+
+  test('suprimento nunca pede PIN, mesmo com a aprovação ligada', async () => {
+    cfgDe({ sangriaExigeAprovacao: true, precisaAprovacao: true, podeConfigurar: false })
+    render(<Caixa />); fireEvent.click(await screen.findByText(/➕ Suprimento/))
+    expect(await screen.findByLabelText(/Valor contado/)).toBeTruthy(); expect(screen.queryByLabelText('PIN do supervisor')).toBeNull()
+  })
+
+  test('supervisor liga e desliga a configuração; operador nem vê a opção', async () => {
+    cfgDe({ sangriaExigeAprovacao: false, precisaAprovacao: false, podeConfigurar: true })
+    const base = globalThis.fetch
+    globalThis.fetch = vi.fn(async (url, o) => { if (o?.method === 'PUT') { chamadas.push({ url, o }); return resp({ sangriaExigeAprovacao: true, precisaAprovacao: false, podeConfigurar: true, atualizadoPor: 'sup' }) } return base(url, o) })
+    render(<Caixa />)
+    const caixa = await screen.findByRole('checkbox')
+    fireEvent.click(caixa)
+    await waitFor(() => expect(chamadas.some(c => c.o?.method === 'PUT' && c.url.endsWith('/caixa/configuracao'))).toBe(true))
+    expect(JSON.parse(chamadas.find(c => c.o?.method === 'PUT').o.body)).toEqual({ sangriaExigeAprovacao: true })
+    expect(await screen.findByText(/LIGADA/)).toBeTruthy(); expect(caixa).toBeTruthy()
+  })
+
+  test('operador não vê a opção de configurar', async () => {
+    cfgDe({ sangriaExigeAprovacao: true, precisaAprovacao: true, podeConfigurar: false })
+    render(<Caixa />); await screen.findByText(/Turno aberto/)
+    expect(screen.queryByText(/Exigir aprovação do supervisor na sangria/)).toBeNull()
+  })
+})

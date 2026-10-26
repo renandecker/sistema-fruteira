@@ -1,15 +1,42 @@
-FRUTEIRA — PASTA DE PRODUÇÃO (gerada por gerar-producao.sh/.bat)
-================================================================
-Precisa instalar no servidor: Java 21, Docker e (sem nginx) Node 18+. NÃO precisa de Maven nem de compilar nada.
+FRUTEIRA — PRODUÇÃO (só Java + PostgreSQL)
+==========================================
+Na máquina do servidor instale APENAS:
+  1) Java 21 (JRE ou JDK)            https://adoptium.net
+  2) PostgreSQL 14 ou mais novo      https://www.postgresql.org/download   (anote a senha do usuário "postgres" que o instalador pede)
+NÃO precisa de Docker, Node, Maven nem nginx. Tudo mais (Keycloak, serviços, front) já vem nesta pasta.
 
-1) Abra o arquivo .env e confira (as senhas são geradas aleatoriamente — guarde-as). Se o .env não existir ou algum valor estiver vazio/de exemplo ("troque-..."), o iniciar cria o arquivo a partir da raiz do projeto e gera as senhas sozinho; arquivos que faltarem nesta pasta (compose, keycloak, nginx...) também são copiados da raiz. './iniciar.sh --preparar' faz só essa preparação:
-   - KEYCLOAK_URL e FRONT_URL (com HTTPS/domínio reais, se for usar nginx); TEF_PROVIDER, PIX_PROVIDER...
-   - Mudou KEYCLOAK_URL/FRONT_URL/domínios? Rode gerar-producao de novo na pasta do projeto (o front embute a URL do Keycloak).
-2) HTTPS (opcional): USE_NGINX=true no .env, DNS dos dois domínios apontando para o servidor e  ./ssl.sh letsencrypt
-3) Iniciar:  ./iniciar.sh   (Windows: iniciar.bat)      Parar: ./parar.sh (parar.bat)
-4) Entre pelo Keycloak com gerente/supervisor/operador, senha temporária "trocar123" (troque no primeiro acesso).
-5) Banco de dados: as tabelas são criadas e atualizadas sozinhas pelo Flyway quando o retaguarda sobe, que é o dono do Flyway (nada a rodar à mão). O pré-cadastro de frutas e verduras
-   também entra sozinho na 1ª subida; para NÃO carregar, ponha FLYWAY_LOCATIONS=db/migration no .env antes de iniciar. Atualizou o sistema? Só trocar a pasta servicos/ e reiniciar.
-6) Backup: pasta backup/ (backup.bat / ./backup.sh; agendar.bat / ./agendar.sh; pendrive e Google Drive em backup/backup.env — leia backup/LEIA-ME.txt). Os dados ficam nos volumes Docker (pgdata, kcdata).
+PRIMEIRO USO
+  1) Copie esta pasta para o servidor (ex.: C:\Fruteira ou /opt/fruteira) e rode  iniciar.bat  (Windows) ou  ./iniciar.sh  (Linux).
+     Na primeira vez ele cria o arquivo .env a partir do .env.example e GERA as senhas (banco, Keycloak, token do TEF).
+  2) Abra o .env e confira:
+       PG_ADMIN_PASS = a senha do usuário "postgres" do PostgreSQL (a que você definiu ao instalá-lo)
+       KEYCLOAK_URL e FRONT_URL = o endereço que os caixas vão digitar. Na rede da loja use o IP/nome do servidor:
+                                  http://192.168.0.10:8180  e  http://192.168.0.10:5173   (não use "localhost" se houver outros computadores)
+       TEF_PROVIDER, PIX_PROVIDER, FISCAL_* ...
+  3) Rode iniciar de novo. Ele cria os bancos e usuários no PostgreSQL, sobe o Keycloak, os 5 serviços e o front.
+     A primeira subida leva alguns minutos (o Keycloak se prepara). Quando aparecer "Fruteira no ar", abra FRONT_URL.
+  4) Entre com gerente/supervisor/operador, senha temporária "trocar123" (o Keycloak pede para trocar no primeiro acesso).
 
-Conteúdo: servicos/ (jars Quarkus) · web/ (front) · servidor-web.mjs · docker-compose.prod.yml · keycloak/ · nginx/ · database/ · .env · logs/ · backups/
+DIA A DIA
+  iniciar   sobe tudo (a janela fica aberta; Ctrl+C encerra)       parar     encerra tudo
+  status    mostra o que está no ar                                 backup    faz um backup agora      restaurar ARQUIVO  recupera
+  Para iniciar sozinho com o computador: Windows — atalho de iniciar.bat na pasta "Inicializar" ou tarefa agendada; Linux — serviço systemd/cron @reboot.
+  Firewall: libere só as portas 5173 (front) e 8180 (Keycloak) para a rede da loja; 8081-8084, 8090 e 5432 devem ficar fechadas para fora do servidor.
+
+NOTA FISCAL (NFC-e/NF-e): coloque o certificado A1 como  certificado.pfx  nesta pasta e defina FISCAL_PROVIDER=sefaz, FISCAL_* e FISCAL_CERT_SENHA no .env (veja o README do projeto).
+
+BANCO DE DADOS: as tabelas são criadas e atualizadas sozinhas (Flyway) quando o retaguarda sobe. O pré-cadastro de frutas e verduras entra na 1ª subida;
+  para NÃO carregar, ponha FLYWAY_LOCATIONS=db/migration no .env antes da primeira subida.
+ATUALIZAR O SISTEMA: pare, troque as pastas servicos/ e web/ (e o fruteira-launcher.jar, se vier novo) e inicie de novo. O .env, o certificado e os dados ficam.
+
+BACKUP (pasta backups/)
+  ./backup.sh  ou  backup.bat   → fruteira-AAAAMMDD-HHMMSS-prod.zip[.enc] + .sha256 com os dois bancos (pg_dump), .env, certificado e realm.
+  Defina BACKUP_SENHA no .env (AES-256; SEM a senha não há como abrir — guarde-a fora do servidor) e BACKUP_DESTINOS (pendrive, Google Drive do computador;
+  vários separados por ";") ou RCLONE_DESTINO. BACKUP_RETENCAO_DIAS apaga os antigos. Agendar às 02:00: agendar-backup.bat (Windows, como administrador) ou ./agendar-backup.sh.
+  Restaurar: PARE o sistema e rode  restaurar backups/ARQUIVO.zip.enc --senha SUASENHA --sim   (apaga os dados atuais!). Teste a restauração de vez em quando.
+
+HTTPS (opcional): sem nginx. Com um certificado seu em .p12, defina WEB_TLS_P12/WEB_TLS_SENHA e KEYCLOAK_TLS_P12/KEYCLOAK_TLS_SENHA e use https:// em FRONT_URL e KEYCLOAK_URL.
+  Na rede interna da loja o padrão é HTTP.
+
+Conteúdo: fruteira-launcher.jar · servicos/ (jars Quarkus) · web/ (front) · keycloak/ (distribuição do Keycloak) · .env.example · logs/ · backups/ · run/
+Problemas? Veja logs/<serviço>.log. "PostgreSQL recusou a senha" = ajuste PG_ADMIN_PASS. "porta em uso" = rode parar.

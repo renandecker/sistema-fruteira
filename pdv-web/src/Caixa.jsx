@@ -11,13 +11,18 @@ function imprimirTexto(txt) {
 /** Sangria / suprimento (modal). CEGA: o operador informa o valor que CONTOU e nunca vê o saldo do sistema. */
 export function SangriaModal({ onFechar, onFeita, tipoInicial = 'sangria' }) {
   const [tipo, setTipo] = useState(tipoInicial); const [valor, setValor] = useState(''); const [motivo, setMotivo] = useState(''); const [erro, setErro] = useState(''); const [env, setEnv] = useState(false)
+  const [cfg, setCfg] = useState({}); const [pin, setPin] = useState('')
+  useEffect(() => { api('/api/vendas/caixa/configuracao').then(c => setCfg(c || {})).catch(() => {}) }, [])
   const v = +valor
-  const ok = v > 0 && !env
+  const pedePin = tipo === 'sangria' && !!cfg.precisaAprovacao                      // aprovação do supervisor ligada na Configuração do caixa
+  const ok = v > 0 && !env && (!pedePin || pin.trim() !== '')
   const enviar = async () => {
     if (!ok) return
     setEnv(true); setErro('')
     try {
-      const r = await post(`/api/vendas/caixa/${tipo}`, { valor: v, motivo })
+      const r = pedePin
+        ? await api('/api/vendas/caixa/sangria', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Supervisor-Pin': pin.trim() }, body: JSON.stringify({ valor: v, motivo }) })
+        : await post(`/api/vendas/caixa/${tipo}`, { valor: v, motivo })
       if (tipo === 'sangria' && r.comprovante) imprimirTexto(r.comprovante)
       onFeita?.(r, tipo)
     } catch (e) { setErro(String(e)); setEnv(false) }
@@ -33,6 +38,7 @@ export function SangriaModal({ onFechar, onFeita, tipoInicial = 'sangria' }) {
     <p style={{ margin: '8px 0' }}>Conte as notas e moedas {tipo === 'sangria' ? 'que está retirando da gaveta' : 'que está colocando na gaveta'} e informe o valor. O saldo do sistema não é exibido.</p>
     <label style={{ display: 'block' }}>Valor contado (R$) <input autoFocus type="number" step="0.01" min="0" value={valor} onChange={e => setValor(e.target.value)} style={{ fontSize: 24, width: 160 }} /></label>
     <label style={{ display: 'block', marginTop: 8 }}>Motivo (opcional) <input value={motivo} maxLength={200} onChange={e => setMotivo(e.target.value)} placeholder={tipo === 'sangria' ? 'ex.: levar ao cofre' : 'ex.: troco do banco'} style={{ width: '100%' }} /></label>
+    {pedePin && <label style={{ display: 'block', marginTop: 8 }}>🔐 Aprovação do supervisor: PIN <input type="password" inputMode="numeric" autoComplete="off" aria-label="PIN do supervisor" value={pin} onChange={e => setPin(e.target.value)} style={{ width: 160 }} /></label>}
     {erro && <div className="msg" role="alert" style={{ margin: '8px 0' }}>{erro}</div>}
     <div className="meios" style={{ marginTop: 12 }}><button className="btn" disabled={!ok} onClick={enviar}>Confirmar <kbd>Enter</kbd></button>
       <button className="btn sec" onClick={onFechar}>Cancelar <kbd>Esc</kbd></button></div>
@@ -41,7 +47,9 @@ export function SangriaModal({ onFechar, onFeita, tipoInicial = 'sangria' }) {
 
 /** Tela do operador: abrir turno (fundo de troco), sangria/suprimento e encerrar com contagem cega. */
 export function Caixa() {
-  const [t, setT] = useState(null); const [fundo, setFundo] = useState(''); const [v, setV] = useState(''); const [msg, setMsg] = useState(''); const [modal, setModal] = useState(null); const [fechado, setFechado] = useState(false)
+  const [t, setT] = useState(null); const [fundo, setFundo] = useState(''); const [v, setV] = useState(''); const [msg, setMsg] = useState(''); const [modal, setModal] = useState(null); const [fechado, setFechado] = useState(false); const [cfg, setCfg] = useState({})
+  useEffect(() => { api('/api/vendas/caixa/configuracao').then(c => setCfg(c || {})).catch(() => {}) }, [])
+  const mudarAprovacao = e => { const v = e.target.checked; api('/api/vendas/caixa/configuracao', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sangriaExigeAprovacao: v }) }).then(c => { setCfg(c); setMsg(v ? 'Aprovação do supervisor na sangria LIGADA ✔' : 'Aprovação do supervisor na sangria desligada ✔') }).catch(er => setMsg(String(er))) }
   const carregar = () => api('/api/vendas/caixa/turno').then(setT).catch(e => setMsg(String(e)))
   useEffect(() => { carregar() }, [])
   const abrir = () => post('/api/vendas/caixa/abrir', { fundoTroco: +fundo || 0 }).then(() => { setFundo(''); setFechado(false); carregar() }).catch(e => setMsg(String(e)))
@@ -51,6 +59,8 @@ export function Caixa() {
   }
   return <Pagina titulo="💵 Caixa: turno, sangria e fechamento">
     <Aviso m={msg} />
+    {cfg.podeConfigurar && <div className="msg" style={{ margin: '0 0 12px' }} aria-label="Configuração do caixa"><label><input type="checkbox" checked={!!cfg.sangriaExigeAprovacao} onChange={mudarAprovacao} /> <b>Exigir aprovação do supervisor na sangria</b></label>
+      <small style={{ display: 'block' }}>Desligado por padrão. Ligado, o operador só faz a sangria com o PIN do supervisor (variável SUPERVISOR_PIN; sem ela vale o PIN do gerente). Supervisor e gerente não precisam de PIN.{cfg.atualizadoPor ? ` Última alteração: ${cfg.atualizadoPor}.` : ''}</small></div>}
     {t === null ? <p>Carregando…</p> : !t.aberto ? <>
       {fechado && <div className="msg">Turno encerrado ✔ A contagem foi registrada; a conferência será feita pelo gerente.</div>}
       <p>Nenhum turno aberto. Informe o <b>fundo de troco</b> (dinheiro que já está na gaveta) para começar.</p>

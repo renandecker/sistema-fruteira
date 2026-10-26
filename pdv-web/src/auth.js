@@ -1,6 +1,9 @@
 // Autenticação por ambiente. APP_ENV=producao -> Keycloak (OIDC/PKCE); caso contrário, login local (Login.jsx).
-export const PROD = __APP_ENV__ === 'producao'
-export const KC = __KC__
+// Em produção o servidor web entrega /config.js (window.__FRUTEIRA__) com a URL do Keycloak do .env: o front não precisa ser recompilado ao trocar o endereço.
+// Sem ele (desenvolvimento, ou build antigo) valem os valores embutidos no build.
+const R = typeof window !== 'undefined' ? window.__FRUTEIRA__ : null
+export const PROD = R ? R.appEnv === 'producao' : __APP_ENV__ === 'producao'
+export const KC = R?.kc ?? __KC__
 let kc = null
 
 export async function iniciarAuth() {

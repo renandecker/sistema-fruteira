@@ -29,3 +29,13 @@ test('testar a SEFAZ chama /sefaz-status e mostra o cStat', async () => {
   await waitFor(() => expect(screen.getByText(/107 - Servico em Operacao/)).toBeTruthy())
   expect(f.mock.calls[0][0]).toBe('/api/retaguarda/nfe/sefaz-status'); expect(f.mock.calls[0][1].method).toBe('POST')
 })
+
+test('auth: /config.js do servidor tem prioridade sobre o valor embutido no build', async () => {
+  vi.resetModules()
+  window.__FRUTEIRA__ = { appEnv: 'producao', kc: { url: 'http://servidor:8180', realm: 'fruteira', client: 'pdv-web' } }
+  const a = await import('../src/auth.js')
+  expect(a.PROD).toBe(true); expect(a.KC.url).toBe('http://servidor:8180')
+  delete window.__FRUTEIRA__; vi.resetModules()
+  const b = await import('../src/auth.js')
+  expect(b.PROD).toBe(false); expect(b.KC).toEqual({})   // sem /config.js vale o valor embutido no build (no teste, {})
+})

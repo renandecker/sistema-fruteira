@@ -25,7 +25,12 @@ public class CaixaResource {
     /** A partir deste saldo o PDV avisa (sem mostrar o valor) que é hora de fazer uma sangria. */
     @ConfigProperty(name = "fruteira.caixa.limite-gaveta", defaultValue = "500") BigDecimal limiteGaveta;
 
+    /** PIN do supervisor (opcional: sem ele só vale o PIN do gerente) e do gerente, que também pode aprovar. */
+    @ConfigProperty(name = "fruteira.supervisor.pin") java.util.Optional<String> pinSupervisorCfg;
+    @ConfigProperty(name = "fruteira.gerente.pin") String pinGerente;
+
     public record Abertura(BigDecimal fundoTroco) {}
+    public record Configuracao(Boolean sangriaExigeAprovacao) {}
     public record Mov(BigDecimal valor, String motivo) {}
     public record Fechamento(BigDecimal contadoDinheiro) {}
 
@@ -73,19 +78,58 @@ public class CaixaResource {
         return t;
     }
 
+    private static boolean pinConfere(String esperado, String informado) {
+        return esperado != null && !esperado.isEmpty() && informado != null
+            && java.security.MessageDigest.isEqual(esperado.getBytes(java.nio.charset.StandardCharsets.UTF_8), informado.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    /** Configuração do caixa para a tela: se a sangria do usuário atual exige aprovação e se ele pode mudar a configuração (supervisor ou gerente). */
+    @GET @Path("/configuracao") @Transactional
+    public Map<String, Object> configuracao() {
+        ConfigCaixa c = ConfigCaixa.atual(); boolean sup = auditor.supervisorOuMais();
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("sangriaExigeAprovacao", c.sangriaExigeAprovacao);
+        m.put("precisaAprovacao", c.sangriaExigeAprovacao && !sup);       // supervisor e gerente aprovam a si mesmos
+        m.put("podeConfigurar", sup);
+        m.put("atualizadoPor", c.atualizadoPor); m.put("atualizadoEm", c.atualizadoEm);
+        return m;
+    }
+
+    /** Só o supervisor (ou gerente) liga/desliga a aprovação do supervisor na sangria. Desligada por padrão. */
+    @PUT @Path("/configuracao") @Transactional
+    public Map<String, Object> configurar(Configuracao in) {
+        if (!auditor.supervisorOuMais()) throw Http.erro(403, "Somente o supervisor ou o gerente altera esta configuração");
+        if (in == null || in.sangriaExigeAprovacao() == null) throw Http.erro(422, "Informe sangriaExigeAprovacao (true ou false)");
+        ConfigCaixa c = ConfigCaixa.<ConfigCaixa>findAll().firstResult(); boolean antes = c != null && c.sangriaExigeAprovacao;
+        if (c == null) c = new ConfigCaixa();
+        c.sangriaExigeAprovacao = in.sangriaExigeAprovacao(); c.atualizadoPor = auditor.usuario(); c.atualizadoEm = LocalDateTime.now(); c.persist();
+        auditor.registrar("EDICAO", "Configuração do caixa", c.id, "Aprovação do supervisor na sangria: " + (antes ? "ligada" : "desligada") + " → " + (c.sangriaExigeAprovacao ? "LIGADA" : "desligada"), antes, c.sangriaExigeAprovacao);
+        return configuracao();
+    }
+
     @POST @Path("/sangria") @Transactional
-    public Map<String, Object> sangria(Mov in) {
+    public Map<String, Object> sangria(Mov in, @HeaderParam("X-Supervisor-Pin") String pin) {
         TurnoCaixa t = aberto(auditor.usuario());
         if (t == null) throw Http.erro(409, "Abra o turno antes de fazer sangria");
         BigDecimal v = valorValido(in == null ? null : in.valor(), false);
+        String aprovacao = null;
+        if (ConfigCaixa.atual().sangriaExigeAprovacao && !auditor.supervisorOuMais()) {          // aprovação ligada: o operador precisa do PIN do supervisor
+            if (pin == null || pin.isBlank()) throw Http.erro(403, "Sangria requer a aprovação do supervisor (PIN)");
+            if (!pinConfere(pinSupervisorCfg.orElse(""), pin) && !pinConfere(pinGerente, pin)) {
+                auditor.registrar("SEGURANCA", "Sangria de caixa", t.id, "PIN de aprovação INCORRETO ao tentar sangria de R$ " + v + " (turno " + t.id + ")", null, null);
+                throw Http.erro(403, "PIN do supervisor incorreto");
+            }
+            aprovacao = pinConfere(pinSupervisorCfg.orElse(""), pin) ? "supervisor (PIN)" : "gerente (PIN)";
+        }
         MovimentoCaixa m = novo(t, "SANGRIA", v, in.motivo());
+        m.aprovacao = aprovacao;
         m.acimaDoSaldo = v.compareTo(esperado(t)) > 0;            // conferência cega: só vai para a auditoria
         m.persist();
-        auditor.registrar("CADASTRO", "Sangria de caixa", m.id, "Sangria R$ " + v + " (turno " + t.id + ")" + (m.acimaDoSaldo ? " — ACIMA do saldo do sistema" : "") + (m.motivo == null ? "" : " | " + m.motivo), null, null);
+        auditor.registrar("CADASTRO", "Sangria de caixa", m.id, "Sangria R$ " + v + " (turno " + t.id + ")" + (m.acimaDoSaldo ? " — ACIMA do saldo do sistema" : "") + (aprovacao == null ? "" : " — aprovada pelo " + aprovacao) + (m.motivo == null ? "" : " | " + m.motivo), null, null);
         return Map.of("id", m.id, "valor", v, "data", m.data, "operador", m.operador,
             "comprovante", "      FRUTEIRA CONVENTOS\n        SANGRIA DE CAIXA\n"
               + "Nº " + m.id + "   " + m.data.toString().replace('T', ' ').substring(0, 16) + "\n"
-              + "Operador: " + m.operador + "\nValor retirado: R$ " + v + "\n" + (m.motivo == null ? "" : "Motivo: " + m.motivo + "\n")
+              + "Operador: " + m.operador + "\nValor retirado: R$ " + v + "\n" + (m.motivo == null ? "" : "Motivo: " + m.motivo + "\n") + (aprovacao == null ? "" : "Aprovada pelo " + aprovacao + "\n")
               + "\n______________________\nAssinatura / conferente\n");
     }
 

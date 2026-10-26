@@ -2,7 +2,7 @@
 
 ## Rodar tudo de uma vez
 - Linux/macOS: `./iniciar.sh` (Ctrl+C encerra; `./parar.sh` se sobrar processo)
-- **Portas:** ao iniciar (`iniciar.sh` e `iniciar.bat`), o que estiver escutando em 8081–8084 (serviços), 8090 (agente TEF) e 5173 (front) é encerrado, para uma execução anterior que ficou pendurada não impedir a subida; o script mostra qual processo foi encerrado e aborta se não conseguir liberar. PostgreSQL, Keycloak e nginx são do Docker e não são tocados. `LIBERAR_PORTAS=false` no `.env` desliga isso.
+- **Portas:** ao iniciar (`iniciar.sh` e `iniciar.bat`), o que estiver escutando em 8081–8084 (serviços), 8090 (agente TEF) e 5173 (front) é encerrado, para uma execução anterior que ficou pendurada não impedir a subida; o script mostra qual processo foi encerrado e aborta se não conseguir liberar. O PostgreSQL instalado na máquina não é tocado. `LIBERAR_PORTAS=false` no `.env` desliga isso.
 - **Banco travado / `missing table`:** o retaguarda-service é o dono do banco (Flyway) e sobe primeiro; se ele não subir, o `iniciar` agora **para e mostra o log dele**, em vez de subir os outros (que falhariam com `Schema-validation: missing table [Movimento]`). Em desenvolvimento o script apaga o `data/*.lock.db` que sobra de uma execução anterior e avisa se a pasta está no **OneDrive** (a sincronização pode travar o `data/fruteira.mv.db`; erro `90028` / "Acquisition timeout"). Se persistir, feche todas as janelas, mova o projeto para fora do OneDrive (ex.: `C:\fruteira`) ou apague a pasta `data` (recria o banco).
 - **`missing table [Entities$Auditoria]`:** as entidades do retaguarda eram classes aninhadas sem nome (tabela `Entities$X`, que o Hibernate procura com maiúsculas/minúsculas exatas e o H2 guardava em maiúsculas). Agora cada uma tem nome explícito (`@Entity(name = "Cliente")` etc.) e as tabelas são `Fornecedor`, `Cliente`, `Cotacao`, `Conta`, `Nota`, `Auditoria`, `Usuario`; as migrations V1–V3 e V13 foram reescritas com esses nomes (o projeto ainda não tinha banco de verdade). **Apague a pasta `data` uma vez** ao atualizar, senão o Flyway acusa checksum diferente.
 - Windows: duplo clique em `iniciar.bat` (`parar.bat` encerra)
@@ -15,7 +15,7 @@ cd vendas-service   && mvn quarkus:dev     # :8083
 cd retaguarda-service && mvn quarkus:dev   # :8084  (fornecedores, clientes, cotações, contas, NFC-e, usuários)
 cd pdv-web && npm i && npm run dev         # :5173
 ```
-Requer JDK 21, Maven e Docker (Em dev o banco é um H2 em arquivo (pasta data/ da raiz, compartilhado pelos 4 serviços), sem Docker).
+Requer JDK 21, Maven e Node (Em dev o banco é um H2 em arquivo (pasta data/ da raiz, compartilhado pelos 4 serviços), sem Docker).
 Sem balança física: no console do navegador `__simulaPeso(0.350)`.
 
 ## Já implementado
@@ -44,8 +44,8 @@ Copie `.env.example` para `.env` e escolha `APP_ENV`:
 | APIs Quarkus | abertas (OIDC desligado) | exigem Bearer token; **perfil validado por rota** |
 | Banco | H2 em arquivo (`data/fruteira`, único) | PostgreSQL (`DB_URL`, `DB_USER`, `DB_PASS`) |
 | Dados de exemplo | sim | não |
-| Execução | `quarkus:dev` + Vite | jars (`mvn package`) + front buildado (`vite preview` ou **nginx/HTTPS** se `USE_NGINX=true`) |
-| Docker | não precisa | Keycloak + PostgreSQL (+ nginx opcional) — `docker-compose.prod.yml` |
+| Execução | `quarkus:dev` + Vite | jars (`mvn package`) + front buildado, servidos pelo `fruteira-launcher.jar` (só Java) |
+| Instalado no servidor | — | **só Java 21 + PostgreSQL** (sem Docker, Node, Maven ou nginx) |
 
 `iniciar.sh` / `iniciar.bat` leem o `.env` e fazem o resto. Em produção eles recusam senhas que comecem com `troque`.
 
@@ -63,25 +63,9 @@ Copie `.env.example` para `.env` e escolha `APP_ENV`:
 
    O token do usuário é repassado nas chamadas entre microsserviços (`propagateHeaders=Authorization`). Qualquer rota não listada exige apenas estar autenticado.
 
-### Produção local, sem HTTPS (padrão: `USE_NGINX=false`)
-O front buildado é servido por `vite preview` em `http://localhost:5173` e o Keycloak em `http://localhost:8180`. O realm usa `FRONT_URL` nos `redirectUris`. **Serve só para testar a produção na sua máquina** — não use na internet.
-
-### HTTPS com nginx (opcional: `USE_NGINX=true`)
-```
-Internet ──443──> nginx ──┬─ https://FRONT_DOMAIN      -> pdv-web/dist (SPA) e /api/<serviço>/ -> Quarkus no host (8081-8084)
-                          └─ https://KEYCLOAK_DOMAIN   -> Keycloak (contêiner)
-```
-1. **DNS:** aponte `FRONT_DOMAIN` (ex.: `loja.seudominio.com.br`) e `KEYCLOAK_DOMAIN` (ex.: `auth.seudominio.com.br`) para o IP do servidor e libere as portas **80 e 443**.
-2. **`.env`:** `USE_NGINX=true` e preencha `FRONT_DOMAIN`, `KEYCLOAK_DOMAIN`, `LE_EMAIL`, `KEYCLOAK_URL=https://<KEYCLOAK_DOMAIN>`, `FRONT_URL=https://<FRONT_DOMAIN>` e as senhas. O `iniciar` confere se as URLs batem com os domínios e recusa domínios `exemplo`.
-3. **Certificado:** `./ssl.sh letsencrypt` (Windows: `ssl.bat letsencrypt`). Um certificado único cobre os dois domínios. Renovação: agende `./ssl.sh renovar` (cron semanal); o nginx pausa por alguns segundos.
-4. **Subir:** `./iniciar.sh` (build do front → nginx/Keycloak/PostgreSQL → jars).
-5. **Redirect URIs:** o realm usa `${FRONT_URL}/*` (placeholder do Keycloak, preenchido pelo `.env`). **A importação só ocorre na criação do realm.** Se já subiu o Keycloak antes de trocar o domínio, ajuste em *Clients → pdv-web* no console ou apague o volume (`docker compose -f docker-compose.prod.yml down -v`, apaga os dados do Keycloak).
-
-**Teste local com HTTPS:** use domínios como `loja.local` / `auth.local`, rode `./ssl.sh local`, adicione-os ao arquivo *hosts* apontando para `127.0.0.1`, defina `OIDC_TLS_VERIFICATION=none` no `.env` e aceite o aviso do navegador.
-
-**Endurecimento recomendado:**
-- Bloqueie no firewall as portas 8081–8084 e 5432 (os serviços escutam em todas as interfaces; só o nginx deve acessá-los).
-- Restrinja `/admin/` do Keycloak a IPs conhecidos (bloco comentado em `nginx/templates/default.conf.template`).
+### Produção (só Java + PostgreSQL)
+O `fruteira-launcher.jar` sobe tudo sem Docker: cria os bancos no PostgreSQL instalado, inicia o Keycloak (distribuição em `keycloak/`), os 5 serviços Quarkus e o front (servidor web embutido com proxy `/api/<serviço>`). Em `http://<servidor>:5173` (front) e `:8180` (Keycloak). HTTPS é opcional com certificado `.p12` (`WEB_TLS_P12`/`WEB_TLS_SENHA`, `KEYCLOAK_TLS_P12`/`KEYCLOAK_TLS_SENHA`). Se `FRONT_URL` mudar, o launcher atualiza as URLs de retorno do cliente no Keycloak.
+- Firewall: libere só 5173 e 8180 para a rede da loja; 8081–8084, 8090 e 5432 ficam fechadas para fora.
 - Troque as senhas temporárias `trocar123` e as do `.env`; faça backup com `backup/` (ver seção Backup).
 
 **Limitações conhecidas:** `/estoque/baixa` é liberada ao operador (necessária para vendas), então a mesma rota serve a perdas lançadas por quem tiver acesso; o login offline com cache local só existe em desenvolvimento.
@@ -143,7 +127,7 @@ Segue o roteiro do `pix.txt`: o React nunca fala com o PSP; o servidor Java guar
   - **Como usar:** instale o [Ngrok](https://ngrok.com/download), `ngrok config add-authtoken SEU_TOKEN` (ou `NGROK_AUTHTOKEN` no `.env`) e ponha `USAR_NGROK=true` no `.env`: `iniciar.sh/.bat` abrem `ngrok http 8083` (com `NGROK_DOMINIO` se você tem domínio reservado), mostram o endereço e passam-no ao `vendas-service`; `parar.sh/.bat` fecham o túnel. Ou abra você mesmo `ngrok http 8083`: o serviço descobre sozinho.
   - **Registrar:** em Configurações → Balança e periféricos → PIX, **Registrar webhook no PSP (gerente)** usa o endereço de *agora* e mostra a URL (sem o segredo) e de onde ela veio. No plano grátis o endereço muda a cada início do Ngrok: registre de novo, ou use `PIX_WEBHOOK_AUTO_REGISTRAR=true` (registra ao subir; **sobrescreve** o webhook da conta no provedor, então não use com a conta de produção da loja). Mercado Pago não registra: a URL vai em cada cobrança.
   - **Segurança:** o túnel aponta direto para o `vendas-service` (porta 8083), nunca para o front. Pelo endereço do Ngrok **só o `POST /pix/webhook` responde** (`NgrokFilter`; o resto da API devolve 404), e o segredo (`FRUTEIRA_PIX_WEBHOOK_SEGREDO`) continua obrigatório. Se preferir expor pelo front/nginx, use `NGROK_CAMINHO=/api/vendas/pix/webhook` (aí a proteção do restante da API é a do nginx/Keycloak).
-  - Variáveis: `USAR_NGROK`, `NGROK_AUTHTOKEN`, `NGROK_DOMINIO`, `NGROK_URL`, `NGROK_ARGS`, `NGROK_CAMINHO`, `NGROK_API` (padrão só em dev), `NGROK_PORTA` (8083), `PIX_WEBHOOK_AUTO_REGISTRAR`. A pasta de produção (`producao-modelo`) não inicia o Ngrok; lá use a URL fixa (domínio + nginx).
+  - Variáveis: `USAR_NGROK`, `NGROK_AUTHTOKEN`, `NGROK_DOMINIO`, `NGROK_URL`, `NGROK_ARGS`, `NGROK_CAMINHO`, `NGROK_API` (padrão só em dev), `NGROK_PORTA` (8083), `PIX_WEBHOOK_AUTO_REGISTRAR`. A pasta de produção não inicia o Ngrok; lá use uma URL fixa.
   - ⚠ A resolução da URL (`PixWebhook`) é coberta por `vendas-service/testar-pix.sh`; o `NgrokFilter`, o `PixWebhookAuto` e o uso real do Ngrok **ainda não foram compilados/rodados** com Quarkus e o Ngrok de verdade (sem Maven nem conta Ngrok aqui): na 1ª vez, abra o túnel e confira em Configurações → PIX → *Testar Pix no servidor* se a URL aparece; um `curl` em `https://SEU-TUNEL/pix/status` deve dar 404 e `POST /pix/webhook` sem token, 401.
 - **Rede de segurança:** se o webhook não chegar, o servidor confere a cobrança no PSP a cada 10 s enquanto o caixa consulta. Cobrança vencida vira `EXPIRADA`; pagamento que chega depois de expirar/cancelar **vale como pago** (o dinheiro entrou).
 - **Pix recebido sem venda** (caixa travou/venda recusada): fica **reservado** — o caixa não gera outro QR (evita cobrar duas vezes) e permite finalizar de novo; também aparece em *Transações PIX* e como aviso ao abrir o caixa. Pix **não se "desfaz"**: só **devolução** (supervisor/gerente). Venda paga com Pix só pode ser cancelada **depois da devolução**.
@@ -325,21 +309,20 @@ Catálogo em `pdv-web/src/cartoes.js` e `vendas-service/.../Cartoes.java` (mante
 - A operadora fica gravada no pagamento da venda e vai para a NFC-e (`tPag` 10 vale-alimentação, 11 vale-refeição).
 - Limites: vales são lançados manualmente (sem TEF/autorização online); o saldo Mobilidade/Farmácia/Saúde do Alelo Tudo não se aplica à fruteira. Para vale com autorização na maquininha, o provedor TEF precisa suportar o produto.
 
-## Pasta de produção (pronta para instalar)
+## Pasta de produção (um ZIP, só Java + PostgreSQL)
 
-`./gerar-producao.sh` (Windows: `gerar-producao.bat`) monta a pasta **`producao/`** com tudo que o servidor precisa:
-
-- `servicos/` (5 jars Quarkus já compilados), `web/` (front compilado), `servidor-web.mjs`, `docker-compose.prod.yml` (PostgreSQL + Keycloak + nginx opcional), `keycloak/`, `nginx/`, `database/`, `.env`, `iniciar`/`parar`/`backup`/`ssl` (.sh e .bat) e `LEIA-ME.txt`.
-- O `iniciar.sh`/`iniciar.bat` da pasta também **se autocorrigem**: se faltar `.env`, compose, Keycloak, nginx etc., copiam da raiz do projeto; senha vazia ou de exemplo (`troque-...`) vira uma senha aleatória gravada no `.env` (`./iniciar.sh --preparar` só prepara, sem iniciar).
-- O `.env` de produção é criado com **senhas aleatórias** (banco, Keycloak e `TEF_TOKEN`) e **nunca é sobrescrito** ao gerar de novo.
-- Rode o gerador na máquina de desenvolvimento (Java, Maven, Node). O **servidor** só precisa de Java 21 + Docker (+ Node se não usar nginx) — sem Maven e sem compilar.
-- Mudou `KEYCLOAK_URL`/`FRONT_URL`/domínios? Gere de novo: a URL do Keycloak é embutida no front no build.
+`./gerar-producao.sh --zip` (Windows: `gerar-producao.bat --zip`) monta `producao/` e `fruteira-producao.zip` com tudo que o servidor precisa: `fruteira-launcher.jar`, `servicos/` (5 jars Quarkus), `web/`, `keycloak/` (26.0.8 + realm), `.env.example`, `iniciar|parar|status|backup|restaurar|agendar-backup` (.sh/.bat) e `LEIA-ME.txt`.
+- **Servidor:** instale apenas Java 21 e PostgreSQL, extraia o ZIP, rode `iniciar`. Na 1ª vez ele cria o `.env` com senhas aleatórias; ajuste `PG_ADMIN_PASS`, `KEYCLOAK_URL` e `FRONT_URL`.
+- **Máquina de desenvolvimento** (JDK 21, Maven, Node): rode o gerador. `--sem-jars` pula o Maven (aí `servicos/` precisa ser gerada em outra máquina).
+- O `.env` nunca vai no ZIP. Atualizar: pare, troque `servicos/`, `web/` e o launcher, inicie.
+- Variáveis novas: `PG_ADMIN_USER/PG_ADMIN_PASS`, `PG_BIN`, `KEYCLOAK_PORT`, `WEB_PORT`, `WEB_TLS_*`, `KEYCLOAK_TLS_*`, `BACKUP_*`, `SUPERVISOR_PIN`.
 
 ## Caixa: turno, sangria e fechamento cego
 
 - **Caixa: turno e sangria** (operador): abre o turno com o **fundo de troco**, faz **sangria** (retirada para o cofre) e **suprimento** (reforço de troco) e encerra informando o dinheiro **contado**. Atalho no PDV: **F8** abre a sangria; o PDV avisa "Gaveta cheia" quando o saldo passa de `CAIXA_LIMITE_GAVETA` (padrão R$ 500), **sem mostrar valores**.
 - **Cego**: o operador informa o que contou e **nunca vê o saldo do sistema**. A sangria imprime um comprovante (nº, operador, valor, motivo, linha de assinatura).
 - **Conferência de caixa** (gerente): por turno, fundo, sangrias, suprimentos, **esperado × contado × diferença**; sangria maior que o saldo do sistema aparece com ⚠. Tudo também vai para a Auditoria.
+- **Aprovação do supervisor na sangria** (desligada por padrão): supervisor/gerente ligam em *Caixa → Exigir aprovação do supervisor na sangria*. Ligada, o operador só conclui a sangria informando o **PIN do supervisor** (`SUPERVISOR_PIN`; se vazio vale o PIN do gerente); supervisor e gerente não precisam de PIN. Suprimento nunca pede PIN.
 - Esperado = fundo de troco + vendas em dinheiro do operador no turno + suprimentos − sangrias. Cada venda guarda o operador (`usuario`). Vendas feitas offline entram no turno do operador que as sincronizar.
 - Um turno aberto por operador; o fechamento exige turno aberto. Não há trava de venda sem turno (apenas um aviso no PDV).
 
@@ -377,7 +360,7 @@ Emissor **separado** da NFC-e, usado só quando a empresa compradora exige nota 
 
 ### Certificado A1 (`certificado.pfx`), assinatura e integração com a SEFAZ
 
-- **Onde fica:** `certificado.pfx` na raiz do projeto (em produção, na pasta `producao/`, ao lado do `.env`; o `gerar-producao.sh` copia). O `iniciar.sh`/`iniciar.bat` mapeiam o arquivo para `FISCAL_CERT_PATH` e `FRUTEIRA_HOME` sozinhos; a senha vai em `FISCAL_CERT_SENHA`. O arquivo e `*.pfx`/`*.p12` estão no `.gitignore`: **nunca** versione o certificado.
+- **Onde fica:** `certificado.pfx` na raiz do projeto (em produção, ao lado do `.env`; o `gerar-producao` copia). O `iniciar` mapeia o arquivo para `FISCAL_CERT_PATH` e `FRUTEIRA_HOME` sozinhos; a senha vai em `FISCAL_CERT_SENHA`. O arquivo e `*.pfx`/`*.p12` estão no `.gitignore`: **nunca** versione o certificado.
 - **Conferência automática:** o sistema lê o certificado e **bloqueia a emissão** se estiver vencido, ainda não vigente, sem uso de assinatura ou com CNPJ de outra empresa (raiz de 8 dígitos diferente do `FISCAL_CNPJ`); avisa 30 dias antes de vencer. Senha errada, arquivo que não é PKCS#12 e arquivo ausente têm mensagem própria. A situação aparece nas telas **NFC-e** e **NF-e** (titular, CNPJ, validade).
 - **Assinatura:** XMLDSig enveloped, C14N, RSA-SHA1/SHA1 (padrão da NF-e 4.00), `Signature` sem prefixo depois de `infNFe`/`infNFeSupl`; a assinatura gerada é **verificada antes do envio** (nunca vai à SEFAZ uma nota que ela rejeitaria por assinatura).
 - **Integração:** SOAP 1.2 com `action` por serviço, TLS com certificado de cliente (mTLS), HTTP/1.1, timeout configurável. O botão **Testar comunicação com a SEFAZ** (NFC-e e NF-e) faz TLS + `consStatServ` (cStat 107 = em operação) sem emitir nada: **faça isso em homologação antes de emitir a primeira nota**. Se o Java recusar o TLS (cadeia ICP-Brasil fora do `cacerts`), use `FISCAL_TRUST_PATH`.
@@ -386,13 +369,11 @@ Emissor **separado** da NFC-e, usado só quando a empresa compradora exige nota 
 
 ## Backup (pendrive ou Google Drive)
 
-Pasta **`backup/`** (só precisa do Node.js): `backup.bat` / `./backup.sh` gera `backup/saida/fruteira-AAAAMMDD-HHMMSS-<dev|prod>.tar.gz[.enc]` com o banco (dump do PostgreSQL e do Keycloak em produção; pastas `data/` do H2 em desenvolvimento), `.env`, certificado digital A1, realm e certificados TLS, mais um `.sha256` de integridade.
-
-- **Destinos extras** em `backup/backup.env` → `BACKUP_DESTINOS` (pendrive `E:\fruteira`, pasta do app *Drive para computador* `G:\Meu Drive\Fruteira`) ou `RCLONE_DESTINO` (Google Drive via rclone). Pendrive ausente: o backup local fica e o script avisa (código de saída 2).
-- **Senha** (`BACKUP_SENHA`, AES-256-GCM): recomendada, pois o backup tem senhas, o certificado e CPFs de clientes. Sem a senha não há como abrir.
-- **Agendar:** `agendar.bat` (Windows, 02:00 todo dia) ou `./agendar.sh` (cron). Retenção de 30 dias (`BACKUP_RETENCAO_DIAS`), na pasta local e nos destinos.
-- **Restaurar:** `restaurar.bat|.sh <arquivo> --senha ...` (confere o hash, exige digitar SIM; `.env`/certificado/realm saem em `backup/restaurado-<data>/` sem sobrescrever nada).
-- Testado com Docker simulado e um pendrive em pasta (backup, criptografia, senha errada, arquivo corrompido, retenção, restauração dev e prod); **não testado** com PostgreSQL real nem no Windows (`.bat`, `schtasks`). Detalhes em `backup/LEIA-ME.txt`.
+`backup` / `restaurar` (na pasta de produção, só Java): `backups/fruteira-AAAAMMDD-HHMMSS-prod.zip[.enc]` + `.sha256` com os dois bancos (`pg_dump` do PostgreSQL instalado), `.env`, certificado A1 e realm.
+- **Senha** `BACKUP_SENHA` (AES-256-GCM): recomendada; sem ela não há como abrir. **Destinos extras:** `BACKUP_DESTINOS` (pendrive, pasta do Drive; vários com `;`) ou `RCLONE_DESTINO`. `BACKUP_RETENCAO_DIAS` apaga os antigos.
+- **Agendar:** `agendar-backup.bat` (Windows, administrador) ou `./agendar-backup.sh` (cron).
+- **Restaurar:** pare o sistema e rode `restaurar backups/ARQUIVO --senha ... --sim` (apaga os dados atuais).
+- Testado com PostgreSQL 16 real (Linux): backup, criptografia, restauração. **Não testado** no Windows (`.bat`, `schtasks`).
 
 ## Caderno (fiado) e dívida de cliente
 

@@ -1,3 +1,5 @@
 #!/usr/bin/env bash
-# Atalho: o backup completo fica na pasta ./backup (veja backup/LEIA-ME.txt)
-cd "$(dirname "$0")"; exec ./backup/backup.sh "$@"
+# Fruteira (produção, só Java + PostgreSQL): backup
+cd "$(dirname "$0")"
+command -v java >/dev/null || { echo "❌ Java 21 não encontrado no PATH (instale o JRE/JDK 21: https://adoptium.net)"; exit 1; }
+exec java -jar fruteira-launcher.jar backup "$@"

@@ -8,9 +8,8 @@ for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do set "%%A=%%B"
 set "FRUTEIRA_HOME=%~dp0"
 if not defined FISCAL_CERT_PATH if exist "%~dp0certificado.pfx" set "FISCAL_CERT_PATH=%~dp0certificado.pfx"
 if "%APP_ENV%"=="" set "APP_ENV=desenvolvimento"
-if "%USE_NGINX%"=="" set "USE_NGINX=false"
 if /i not "%APP_ENV%"=="desenvolvimento" if /i not "%APP_ENV%"=="producao" ( echo [ERRO] APP_ENV invalido: %APP_ENV% & pause & exit /b 1 )
-echo Ambiente: %APP_ENV%  ^(nginx/HTTPS: %USE_NGINX%^)
+echo Ambiente: %APP_ENV%
 
 for %%C in (java mvn node npm) do (
   where %%C >nul 2>nul || ( echo [ERRO] %%C nao encontrado no PATH & pause & exit /b 1 )
@@ -65,48 +64,9 @@ echo Login local: gerente/gerente, supervisor/supervisor, operador/operador
 goto fim
 
 :producao
-where docker >nul 2>nul || ( echo [ERRO] docker nao encontrado no PATH & pause & exit /b 1 )
-echo %DB_PASS% | findstr /b /i "troque" >nul && ( echo [ERRO] Defina uma DB_PASS segura no .env & pause & exit /b 1 )
-echo %KEYCLOAK_ADMIN_PASSWORD% | findstr /b /i "troque" >nul && ( echo [ERRO] Defina KEYCLOAK_ADMIN_PASSWORD segura no .env & pause & exit /b 1 )
-echo %KEYCLOAK_DB_PASS% | findstr /b /i "troque" >nul && ( echo [ERRO] Defina KEYCLOAK_DB_PASS segura no .env & pause & exit /b 1 )
-set "PERFIL="
-if /i not "%USE_NGINX%"=="true" goto prod_build
-echo %FRONT_DOMAIN%%KEYCLOAK_DOMAIN% | findstr /i "exemplo" >nul && ( echo [ERRO] Troque FRONT_DOMAIN/KEYCLOAK_DOMAIN pelos dominios reais no .env & pause & exit /b 1 )
-if not exist "nginx\certs\live\fruteira\fullchain.pem" ( echo [ERRO] Sem certificado TLS. Rode ssl.bat letsencrypt ^(ou ssl.bat local^) & pause & exit /b 1 )
-set "PERFIL=--profile nginx"
-
-:prod_build
-if /i not "%USE_NGINX%"=="true" echo Producao local SEM HTTPS ^(USE_NGINX=false^). Para HTTPS real use USE_NGINX=true no .env.
-echo Gerando o front ^(dist^)...
-pushd pdv-web
-if not exist node_modules call npm install
-call npm run build || ( popd & echo [ERRO] Build do front falhou & pause & exit /b 1 )
-popd
-echo Subindo PostgreSQL e Keycloak...
-docker compose -f docker-compose.prod.yml %PERFIL% up -d || ( pause & exit /b 1 )
-timeout /t 30 /nobreak >nul
-echo Compilando e iniciando microsservicos ^(producao^)...
-rem retaguarda PRIMEIRO (dono do Flyway): os outros so sobem depois que ele responder
-for %%S in (retaguarda-service:8084 catalogo-service:8081 estoque-service:8082 vendas-service:8083 tef-agent:8090) do (
-  for /f "tokens=1,2 delims=:" %%N in ("%%S") do (
-    start "%%N :%%O" cmd /k "cd /d %~dp0%%N && mvn -q package -DskipTests && java -jar target\quarkus-app\quarkus-run.jar"
-    if "%%N"=="retaguarda-service" (
-      echo Aguardando o retaguarda-service criar/atualizar o banco ^(Flyway^)...
-      powershell -NoProfile -Command "for($i=0;$i -lt 90;$i++){ try{ (New-Object Net.Sockets.TcpClient('127.0.0.1',8084)).Close(); exit 0 }catch{ Start-Sleep 2 } }; exit 1" || ( echo [ERRO] retaguarda-service nao subiu em 3 min: ele e o dono do banco ^(Flyway^) e sem ele os outros falham com "missing table". Veja a janela dele. & pause & exit /b 1 )
-    )
-  )
-)
-if /i "%USE_NGINX%"=="true" goto abrir_https
-start "pdv-web :5173" cmd /k "cd /d %~dp0pdv-web && npx vite preview --host --port 5173"
-timeout /t 60 /nobreak >nul
-start %FRONT_URL%
-goto msg_prod
-:abrir_https
-timeout /t 60 /nobreak >nul
-start %FRONT_URL%
-:msg_prod
-echo.
-echo Login via Keycloak: %KEYCLOAK_URL% ^(usuarios gerente/supervisor/operador, senha temporaria trocar123^)
+echo [AVISO] A producao nao usa este script nem Docker. Rode gerar-producao.bat e depois producao\iniciar.bat ^(so Java 21 e PostgreSQL^).
+pause
+exit /b 1
 
 :fim
 echo Tudo iniciado em janelas separadas. Use parar.bat para encerrar.
