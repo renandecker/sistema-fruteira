@@ -48,7 +48,7 @@ export const MENU = [
     { id: 'etiquetas', icone: '🔖', titulo: 'Etiquetas e EAN-13', status: 'ok', perfil: 'supervisor', desc: 'Etiquetas com lote, validade, tabela nutricional e código com peso/preço embutido.' },
   ]},
   { grupo: 'Configurações', itens: [
-    { id: 'usuarios', icone: '🔐', titulo: 'Usuários e perfis', status: 'ok', perfil: 'gerente', desc: 'Permissões para cancelamento, desconto e estorno (login com Keycloak).' },
+    { id: 'usuarios', icone: '🔐', titulo: 'Usuários e perfis', status: 'ok', perfil: 'gerente', desc: 'Permissões para cancelamento, desconto e estorno (login próprio do sistema).' },
     { id: 'perifericos', icone: '⚙️', titulo: 'Balança e periféricos', status: 'ok', perfil: 'gerente', desc: 'Porta serial, TEF, impressoras e gaveta.' },
   ]},
 ]

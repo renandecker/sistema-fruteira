@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { brl, api, post, cfg, useProdutos, useLista, useForm, Pagina, Aviso, SelProduto } from './lib.jsx'
 import { useBalanca } from './balanca.js'
-import { PROD, KC } from './auth.js'
+import { PROD } from './auth.js'
 import { abrirBalanca } from './balanca.js'
 import { agente, cartoesTexto } from './tef.js'
 import { montarEmissao, emitirNfce, corrigirCpfNfce, situacaoNota } from './nfce.js'
@@ -403,12 +403,12 @@ function UsuariosLocal() {
   return <Pagina titulo="🔐 Usuários e perfis"><Aviso m={msg} />
     <div className="barra"><input placeholder="Nome" value={f.nome} onChange={s('nome')} /><input placeholder="Login" value={f.login} onChange={s('login')} />
       <select value={f.perfil} onChange={s('perfil')}><option value="operador">Operador</option><option value="supervisor">Supervisor</option><option value="gerente">Gerente</option></select>
-      <input type="password" placeholder="Senha (mín. 4)" value={f.pin} onChange={s('pin')} /><button className="btn" disabled={!f.nome || !f.login} onClick={add}>Criar</button></div>
+      <input type="password" placeholder={PROD ? 'Senha provisória (mín. 8)' : 'Senha (mín. 4)'} value={f.pin} onChange={s('pin')} /><button className="btn" disabled={!f.nome || !f.login} onClick={add}>Criar</button></div>
     <table className="tab"><thead><tr><th>Nome</th><th>Login</th><th>Perfil</th><th>Situação</th><th></th></tr></thead>
       <tbody>{l.map(u => <tr key={u.id}><td>{u.nome}</td><td>{u.login}</td><td>{u.perfil}</td><td>{u.ativo ? 'Ativo' : <span className="classe off">Desativado</span>}</td>
         <td><button className="btn sec" onClick={() => post(`${R}/usuarios/${u.id}/ativo?valor=${!u.ativo}`).then(c)}>{u.ativo ? 'Desativar' : 'Reativar'}</button>{' '}
-          <button className="btn sec" onClick={() => { const n = window.prompt(`Nova senha para ${u.login} (mín. 4 caracteres):`); if (n) post(`${R}/usuarios/${u.id}/senha?nova=${encodeURIComponent(n)}`).then(() => setMsg('Senha alterada ✔')).catch(e => setMsg(String(e))) }}>Trocar senha</button></td></tr>)}</tbody></table>
-    <p><small>Senhas guardadas com hash (SHA-256). Em produção, use Keycloak/OIDC e valide o perfil também nas APIs.</small></p></Pagina>
+          <button className="btn sec" onClick={() => { const n = window.prompt(`Nova senha para ${u.login} (mín. ${PROD ? 8 : 4} caracteres):`); if (n) post(`${R}/usuarios/${u.id}/senha?nova=${encodeURIComponent(n)}`).then(() => setMsg('Senha alterada ✔')).catch(e => setMsg(String(e))) }}>Trocar senha</button></td></tr>)}</tbody></table>
+    <p><small>Senhas guardadas com hash (PBKDF2). {PROD ? 'Em produção a senha criada ou redefinida aqui é provisória: a pessoa define a própria no primeiro acesso. Cada caixa deve ter o seu usuário.' : 'No desenvolvimento os usuários iniciais têm senha igual ao perfil.'}</small></p></Pagina>
 }
 
 const PRESETS = {
@@ -495,10 +495,4 @@ export function Perifericos() {
       <small>O TEF fica registrado como configuração; a integração com o SDK da adquirente é feita no agente local do PDV.</small></div></Pagina>
 }
 
-function UsuariosKeycloak() {
-  return <Pagina titulo="🔐 Usuários e perfis">
-    <div className="vazio" style={{ textAlign: 'left' }}><p>Em <b>produção</b> os usuários, senhas e perfis são gerenciados no <b>Keycloak</b>.</p>
-      <p>Perfis (realm roles): <b>gerente</b>, <b>supervisor</b>, <b>operador</b>.</p>
-      <a className="btn" target="_blank" rel="noreferrer" href={`${KC.url}/admin/master/console/#/${KC.realm}/users`}>Abrir console do Keycloak</a></div></Pagina>
-}
-export const Usuarios = () => PROD ? <UsuariosKeycloak /> : <UsuariosLocal />
+export const Usuarios = UsuariosLocal

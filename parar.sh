@@ -13,3 +13,6 @@ for porta in $PORTAS; do
     echo "Parado processo $pid na porta $porta"
   done
 done
+
+# Docker local (PostgreSQL) só se estiver rodando: docker compose stop
+command -v docker >/dev/null 2>&1 && [ -f docker-compose.yml ] && docker compose ps -q 2>/dev/null | grep -q . && docker compose stop >/dev/null 2>&1 && echo "Docker local parado (docker compose stop)"

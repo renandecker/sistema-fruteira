@@ -7,4 +7,5 @@ if exist .env findstr /b /i /c:"USAR_NGROK=true" .env >nul 2>nul && set "PORTAS_
 for %%P in (%PORTAS_APP%) do (
   for /f "tokens=5" %%I in ('netstat -ano ^| findstr /R /C:":%%P .*LISTENING"') do taskkill /PID %%I /T /F >nul 2>nul
 )
+where docker >nul 2>nul && docker compose stop >nul 2>nul
 echo Servicos encerrados.

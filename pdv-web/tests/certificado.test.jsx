@@ -32,10 +32,25 @@ test('testar a SEFAZ chama /sefaz-status e mostra o cStat', async () => {
 
 test('auth: /config.js do servidor tem prioridade sobre o valor embutido no build', async () => {
   vi.resetModules()
-  window.__FRUTEIRA__ = { appEnv: 'producao', kc: { url: 'http://servidor:8180', realm: 'fruteira', client: 'pdv-web' } }
+  window.__FRUTEIRA__ = { appEnv: 'producao' }
   const a = await import('../src/auth.js')
-  expect(a.PROD).toBe(true); expect(a.KC.url).toBe('http://servidor:8180')
+  expect(a.PROD).toBe(true)
   delete window.__FRUTEIRA__; vi.resetModules()
   const b = await import('../src/auth.js')
-  expect(b.PROD).toBe(false); expect(b.KC).toEqual({})   // sem /config.js vale o valor embutido no build (no teste, {})
+  expect(b.PROD).toBe(false)   // sem /config.js vale o valor embutido no build (no teste, desenvolvimento)
+})
+
+test('auth: em produção envia o token do login nas chamadas /api/ e volta ao login quando vence (401)', async () => {
+  vi.resetModules(); sessionStorage.clear()
+  window.__FRUTEIRA__ = { appEnv: 'producao' }
+  const original = window.fetch
+  const f = vi.fn().mockResolvedValue({ status: 200, ok: true }); window.fetch = f
+  const a = await import('../src/auth.js')
+  sessionStorage.setItem('user', JSON.stringify({ login: 'ana', perfil: 'operador' })); a.guardarToken('abc.def.ghi')
+  expect(await a.iniciarAuth()).toEqual({ login: 'ana', perfil: 'operador' })
+  await window.fetch('/api/vendas/x')
+  expect(f.mock.calls[0][1].headers.Authorization).toBe('Bearer abc.def.ghi')
+  await window.fetch('/api/retaguarda/usuarios/login', { method: 'POST' })
+  expect(f.mock.calls[1][1]?.headers?.Authorization).toBeUndefined()   // o login não leva token
+  window.fetch = original; delete window.__FRUTEIRA__; sessionStorage.clear()
 })

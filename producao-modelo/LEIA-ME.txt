@@ -3,25 +3,26 @@ FRUTEIRA — PRODUÇÃO (só Java + PostgreSQL)
 Na máquina do servidor instale APENAS:
   1) Java 21 (JRE ou JDK)            https://adoptium.net
   2) PostgreSQL 14 ou mais novo      https://www.postgresql.org/download   (anote a senha do usuário "postgres" que o instalador pede)
-NÃO precisa de Docker, Node, Maven nem nginx. Tudo mais (Keycloak, serviços, front) já vem nesta pasta.
+NÃO precisa de Docker, Node, Maven nem nginx. Tudo mais (serviços, front, login) já vem nesta pasta.
 
 PRIMEIRO USO
   1) Copie esta pasta para o servidor (ex.: C:\Fruteira ou /opt/fruteira) e rode  iniciar.bat  (Windows) ou  ./iniciar.sh  (Linux).
-     Na primeira vez ele cria o arquivo .env a partir do .env.example e GERA as senhas (banco, Keycloak, token do TEF).
+     Na primeira vez ele cria o arquivo .env a partir do .env.example e GERA as senhas (banco, token do TEF, segredo do login e senha inicial do gerente).
   2) Abra o .env e confira:
        PG_ADMIN_PASS = a senha do usuário "postgres" do PostgreSQL (a que você definiu ao instalá-lo)
-       KEYCLOAK_URL e FRONT_URL = o endereço que os caixas vão digitar. Na rede da loja use o IP/nome do servidor:
-                                  http://192.168.0.10:8180  e  http://192.168.0.10:5173   (não use "localhost" se houver outros computadores)
+       FRONT_URL = o endereço que os caixas vão digitar. Na rede da loja use o IP/nome do servidor:
+                                  http://192.168.0.10:5173   (não use "localhost" se houver outros computadores)
        TEF_PROVIDER, PIX_PROVIDER, FISCAL_* ...
-  3) Rode iniciar de novo. Ele cria os bancos e usuários no PostgreSQL, sobe o Keycloak, os 5 serviços e o front.
-     A primeira subida leva alguns minutos (o Keycloak se prepara). Quando aparecer "Fruteira no ar", abra FRONT_URL.
-  4) Entre com gerente/supervisor/operador, senha temporária "trocar123" (o Keycloak pede para trocar no primeiro acesso).
+  3) Rode iniciar de novo. Ele cria os bancos e usuários no PostgreSQL, sobe os serviços e o front.
+     Quando aparecer "Fruteira no ar", abra FRONT_URL.
+  4) Entre com o usuário "gerente" e a senha mostrada no terminal (ADMIN_SENHA_INICIAL no .env); o sistema pede para você criar a sua.
+     Depois, em "Usuários e perfis", crie um usuário para cada caixa (a senha que você definir é provisória: a pessoa troca no 1º acesso).
 
 DIA A DIA
   iniciar   sobe tudo (a janela fica aberta; Ctrl+C encerra)       parar     encerra tudo
   status    mostra o que está no ar                                 backup    faz um backup agora      restaurar ARQUIVO  recupera
   Para iniciar sozinho com o computador: Windows — atalho de iniciar.bat na pasta "Inicializar" ou tarefa agendada; Linux — serviço systemd/cron @reboot.
-  Firewall: libere só as portas 5173 (front) e 8180 (Keycloak) para a rede da loja; 8081-8084, 8090 e 5432 devem ficar fechadas para fora do servidor.
+  Firewall: libere só as portas 5173 (front) para a rede da loja; 8081-8084, 8090 e 5432 devem ficar fechadas para fora do servidor.
 
 NOTA FISCAL (NFC-e/NF-e): coloque o certificado A1 como  certificado.pfx  nesta pasta e defina FISCAL_PROVIDER=sefaz, FISCAL_* e FISCAL_CERT_SENHA no .env (veja o README do projeto).
 
@@ -35,8 +36,11 @@ BACKUP (pasta backups/)
   vários separados por ";") ou RCLONE_DESTINO. BACKUP_RETENCAO_DIAS apaga os antigos. Agendar às 02:00: agendar-backup.bat (Windows, como administrador) ou ./agendar-backup.sh.
   Restaurar: PARE o sistema e rode  restaurar backups/ARQUIVO.zip.enc --senha SUASENHA --sim   (apaga os dados atuais!). Teste a restauração de vez em quando.
 
-HTTPS (opcional): sem nginx. Com um certificado seu em .p12, defina WEB_TLS_P12/WEB_TLS_SENHA e KEYCLOAK_TLS_P12/KEYCLOAK_TLS_SENHA e use https:// em FRONT_URL e KEYCLOAK_URL.
-  Na rede interna da loja o padrão é HTTP.
+HTTPS (opcional): sem nginx. Com um certificado seu em .p12, defina WEB_TLS_P12/WEB_TLS_SENHA e use https:// em FRONT_URL.
+  Com caixas em OUTROS computadores o HTTPS é obrigatório (a senha do login não pode trafegar aberta; a balança exige contexto seguro): rode  certificado.sh IP-DO-SERVIDOR  (certificado.bat no Windows).
+  Ele gera certs/fruteira.p12 + certs/fruteira.cer e ajusta o .env. Em cada caixa instale o .cer (Windows, como administrador: certutil -addstore -f Root fruteira.cer).
 
-Conteúdo: fruteira-launcher.jar · servicos/ (jars Quarkus) · web/ (front) · keycloak/ (distribuição do Keycloak) · .env.example · logs/ · backups/ · run/
+CAIXA COM MAQUININHA PRÓPRIA: o agente TEF roda no computador do caixa. Copie para lá fruteira-launcher.jar, servicos/tef-agent e um .env com FRONT_URL, TEF_PROVIDER e TEF_TOKEN; rode tef.sh / tef.bat.
+
+Conteúdo: fruteira-launcher.jar · servicos/ (jars Quarkus) · web/ (front) · .env.example · logs/ · backups/ · run/
 Problemas? Veja logs/<serviço>.log. "PostgreSQL recusou a senha" = ajuste PG_ADMIN_PASS. "porta em uso" = rode parar.

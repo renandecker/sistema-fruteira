@@ -9,9 +9,9 @@ import jakarta.ws.rs.ext.Provider;
 
 /**
  * Quem chega pelo túnel do Ngrok só enxerga o webhook do Pix. O Ngrok abre a porta do vendas-service para a internet; sem este filtro
- * qualquer um com o endereço do túnel alcançaria o resto da API (em desenvolvimento a identidade vem de cabeçalhos, sem Keycloak).
+ * qualquer um com o endereço do túnel alcançaria o resto da API (em desenvolvimento a identidade vem de cabeçalhos, sem token).
  * Reconhece o túnel pelo host da requisição (ou X-Forwarded-Host): domínios do Ngrok, NGROK_URL ou o túnel detectado.
- * Pelo nginx/Keycloak (produção com domínio próprio) nada muda.
+ * Em produção (token no login) nada muda.
  */
 @Provider
 public class NgrokFilter implements ContainerRequestFilter {

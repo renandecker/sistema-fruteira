@@ -5,55 +5,98 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
-import java.security.MessageDigest;
+import jakarta.ws.rs.core.Response;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
-/** Cadastro simples de usuários/PIN. Em produção, substituir por Keycloak (quarkus-oidc). */
+/** Usuários, login e senhas do próprio sistema (sem Keycloak). O login devolve um token assinado (produção) que o front envia em /api/*. */
 @Path("/usuarios") @Produces(MediaType.APPLICATION_JSON) @Consumes(MediaType.APPLICATION_JSON)
 public class UsuarioResource {
     @Inject Auditor auditor;
+    @Inject Tokens tokens;
+    @ConfigProperty(name = "fruteira.senha.minimo", defaultValue = "4") int minimo;
+    @ConfigProperty(name = "fruteira.senha.provisoria", defaultValue = "false") boolean provisoria;   // true em produção: senha criada/redefinida pelo gerente deve ser trocada no 1º acesso
+
     public record Pin(String pin) {}
     public record Login(String login, String senha) {}
+    public record TrocaSenha(String atual, String nova) {}
 
-    /** Login por usuário e senha (a senha é guardada com hash) */
-    @POST @Path("/login")
-    public Map<String, String> login(Login l) {
-        Usuario u = (l.login() == null || l.senha() == null) ? null
-            : Usuario.find("login = ?1 and pinHash = ?2 and ativo = true", l.login().trim().toLowerCase(), hash(l.senha())).firstResult();
-        if (u == null) throw new ForbiddenException("Usuário ou senha inválidos");
-        return Map.of("nome", u.nome, "login", u.login, "perfil", u.perfil);
+    // bloqueio contra tentativa em massa: 5 erros seguidos do mesmo login bloqueiam por 5 minutos
+    private static final Map<String, long[]> TENTATIVAS = new ConcurrentHashMap<>();
+    private static final int MAX_ERROS = 5; private static final long BLOQUEIO_MS = 5 * 60_000L;
+
+    @POST @Path("/login") @Transactional
+    public Map<String, Object> login(Login l) {
+        String id = l == null || l.login() == null ? "" : l.login().trim().toLowerCase();
+        if (l == null || id.isEmpty() || l.senha() == null) throw new ForbiddenException("Usuário ou senha inválidos");
+        long[] t = TENTATIVAS.get(id);
+        if (t != null && t[0] >= MAX_ERROS && System.currentTimeMillis() < t[1]) throw new WebApplicationException("Muitas tentativas. Aguarde 5 minutos e tente de novo.", 429);
+        Usuario u = Usuario.find("login = ?1 and ativo = true", id).firstResult();
+        if (u == null || !Senhas.confere(l.senha(), u.pinHash)) {
+            TENTATIVAS.compute(id, (k, v) -> { long[] n = v == null || System.currentTimeMillis() >= v[1] ? new long[] {0, 0} : v; n[0]++; n[1] = System.currentTimeMillis() + BLOQUEIO_MS; return n; });
+            throw new ForbiddenException("Usuário ou senha inválidos");
+        }
+        TENTATIVAS.remove(id);
+        if (Senhas.precisaAtualizar(u.pinHash)) u.pinHash = Senhas.gerar(l.senha());
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("nome", u.nome); r.put("login", u.login); r.put("perfil", u.perfil); r.put("provisoria", u.provisoria);
+        String token = tokens.emitir(u); if (token != null) r.put("token", token);
+        return r;
     }
+
+    /** O próprio usuário troca a senha (exige a atual). Em produção exige token. */
+    @POST @Path("/minha-senha") @Transactional
+    public Map<String, Object> minhaSenha(TrocaSenha t) {
+        String login = auditor.usuario();
+        Usuario u = Usuario.find("login = ?1 and ativo = true", login == null ? "" : login.toLowerCase()).firstResult();
+        if (u == null || t == null || !Senhas.confere(t.atual(), u.pinHash)) throw new ForbiddenException("Senha atual incorreta");
+        validarNova(t.nova());
+        if (Senhas.confere(t.nova(), u.pinHash)) throw new WebApplicationException("A nova senha deve ser diferente da atual", 422);
+        u.pinHash = Senhas.gerar(t.nova()); u.provisoria = false;
+        auditor.registrar("EDICAO", "Usuário", u.id, "Senha alterada pelo próprio usuário '" + u.login + "'", null, null);
+        return Map.of("ok", true);
+    }
+
+    /** Gerente redefine a senha de outro usuário (a nova fica provisória em produção). */
     @POST @Path("/{id}/senha") @Transactional
     public Usuario trocarSenha(@PathParam("id") Long id, @QueryParam("nova") String nova) {
-        if (nova == null || nova.length() < 4) throw new WebApplicationException("Senha mínima de 4 caracteres", 422);
+        validarNova(nova);
         Usuario u = Usuario.findById(id); if (u == null) throw new NotFoundException();
-        u.pinHash = hash(nova);
-        auditor.registrar("EDICAO", "Usuário", id, "Senha alterada do usuário '" + u.login + "'", null, null);
+        u.pinHash = Senhas.gerar(nova); u.provisoria = provisoria;
+        auditor.registrar("EDICAO", "Usuário", id, "Senha redefinida do usuário '" + u.login + "'", null, null);
         return u;
     }
 
     @GET public List<Usuario> listar() { return Usuario.listAll(); }
 
     @POST @Transactional public Usuario criar(Usuario u) {
-        if (u.pin == null || u.pin.length() < 4) throw new WebApplicationException("Senha mínima de 4 caracteres", 422);
-        u.login = u.login.trim().toLowerCase(); u.pinHash = hash(u.pin); u.persist();
+        if (u.login == null || u.login.isBlank()) throw new WebApplicationException("Informe o login", 422);
+        if (!List.of("operador", "supervisor", "gerente").contains(u.perfil)) throw new WebApplicationException("Perfil inválido (operador, supervisor ou gerente)", 422);
+        validarNova(u.pin);
+        u.login = u.login.trim().toLowerCase();
+        if (Usuario.count("login", u.login) > 0) throw new WebApplicationException("Já existe um usuário com esse login", 409);
+        u.pinHash = Senhas.gerar(u.pin); u.provisoria = provisoria; u.persist();
         auditor.registrar("CADASTRO", "Usuário", u.id, "Usuário criado: " + u.login + " (" + u.perfil + ")", null, u);
         return u;
     }
     @POST @Path("/{id}/ativo") @Transactional public Usuario ativo(@PathParam("id") Long id, @QueryParam("valor") boolean valor) {
-        Usuario u = Usuario.findById(id); if (u == null) throw new NotFoundException(); u.ativo = valor;
+        Usuario u = Usuario.findById(id); if (u == null) throw new NotFoundException();
+        if (!valor && u.login.equalsIgnoreCase(auditor.usuario())) throw new WebApplicationException("Você não pode desativar o próprio usuário", 422);
+        u.ativo = valor;
         auditor.registrar(valor ? "REATIVACAO" : "DESATIVACAO", "Usuário", id, "Usuário '" + u.login + "' " + (valor ? "reativado" : "desativado"), null, null);
         return u;
     }
-    /** Autorização de supervisor/gerente no caixa (cancelamento, desconto, estorno) */
+    /** Autorização de supervisor/gerente no caixa (cancelamento, desconto, estorno): confere a senha contra os supervisores e gerentes ativos. */
     @POST @Path("/validar")
     public Map<String, String> validar(Pin p) {
-        Usuario u = p.pin() == null ? null : Usuario.find("pinHash = ?1 and ativo = true", hash(p.pin())).firstResult();
-        if (u == null) throw new ForbiddenException("PIN inválido");
-        return Map.of("nome", u.nome, "perfil", u.perfil);
+        if (p == null || p.pin() == null || p.pin().isBlank()) throw new ForbiddenException("PIN inválido");
+        List<Usuario> candidatos = Usuario.list("ativo = true and perfil in ('supervisor', 'gerente')");
+        for (Usuario u : candidatos) if (Senhas.confere(p.pin(), u.pinHash)) return Map.of("nome", u.nome, "perfil", u.perfil);
+        throw new ForbiddenException("PIN inválido");
     }
-    static String hash(String s) {
-        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(("fruteira:" + s).getBytes())); }
-        catch (Exception e) { throw new RuntimeException(e); }
+
+    private void validarNova(String s) {
+        if (s == null || s.length() < minimo) throw new WebApplicationException("Senha mínima de " + minimo + " caracteres", 422);
     }
 }

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Gera a pasta ./producao (ou o ZIP) para instalar no servidor: só precisa de Java 21 + PostgreSQL lá.
-#   ./gerar-producao.sh              monta producao/ (front, launcher, 5 jars Quarkus, Keycloak)
+#   ./gerar-producao.sh              monta producao/ (front, launcher, 5 jars Quarkus)
 #   ./gerar-producao.sh --zip        idem e cria fruteira-producao.zip
 #   ./gerar-producao.sh --sem-jars   não compila os serviços Java (sem Maven)
 #   ./gerar-producao.sh --com-testes roda os testes do Maven
 # Na máquina de desenvolvimento: JDK 21, Maven, Node/npm. O servidor de destino: Java 21 + PostgreSQL.
 set -eu
 cd "$(dirname "$0")"
-DEST=producao; ZIP=0; JARS=1; TESTES=-DskipTests; KC_VER=26.0.8
+DEST=producao; ZIP=0; JARS=1; TESTES=-DskipTests
 for a in "$@"; do case $a in --zip) ZIP=1;; --sem-jars) JARS=0;; --com-testes) TESTES=;; *) echo "opção desconhecida: $a"; exit 1;; esac; done
 need="java node npm"; [ $JARS = 1 ] && need="$need mvn"
 for c in $need; do command -v $c >/dev/null || { echo "❌ '$c' não encontrado no PATH"; exit 1; }; done
@@ -15,7 +15,7 @@ mkdir -p "$DEST"/{servicos,logs,backups,run}
 
 echo "▶ Front..."
 (cd pdv-web && { [ -d node_modules ] || npm install --silent; } && APP_ENV=producao npm run build --silent) || { echo "❌ build do front falhou"; exit 1; }
-rm -rf "$DEST/web"; cp -r pdv-web/dist "$DEST/web"       # a URL do Keycloak é lida em /config.js (do .env), não vai no build
+rm -rf "$DEST/web"; cp -r pdv-web/dist "$DEST/web"       # o ambiente é lido em /config.js (do .env), não vai no build
 
 echo "▶ Launcher..."
 ./launcher/build.sh "$(pwd)/$DEST" >/dev/null
@@ -29,13 +29,7 @@ if [ $JARS = 1 ]; then
   done
 else echo "ℹ --sem-jars: servicos/ não foi gerada"; fi
 
-if [ ! -f "$DEST/keycloak/bin/kc.sh" ]; then
-  echo "▶ Keycloak $KC_VER..."
-  T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-  curl -fsSL -o "$T/kc.zip" "https://github.com/keycloak/keycloak/releases/download/$KC_VER/keycloak-$KC_VER.zip" || { echo "❌ download do Keycloak falhou (baixe keycloak-$KC_VER.zip e extraia em $DEST/keycloak)"; exit 1; }
-  unzip -q "$T/kc.zip" -d "$T" && rm -rf "$DEST/keycloak" && mv "$T/keycloak-$KC_VER" "$DEST/keycloak"
-fi
-mkdir -p "$DEST/keycloak/data/import"; cp keycloak/fruteira-realm.json "$DEST/keycloak/data/import/"
+rm -rf "$DEST/keycloak"
 
 cp producao-modelo/* "$DEST/"; cp .env.example "$DEST/.env.example"
 [ -f certificado.pfx ] && [ ! -f "$DEST/certificado.pfx" ] && cp certificado.pfx "$DEST/" && echo "✔ certificado.pfx copiado"

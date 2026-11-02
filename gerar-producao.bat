@@ -8,7 +8,6 @@ set DEST=producao
 set ZIP=0
 set JARS=1
 set TESTES=-DskipTests
-set KC_VER=26.0.8
 :args
 if "%~1"=="" goto go
 if "%~1"=="--zip" set ZIP=1
@@ -43,16 +42,7 @@ if "%JARS%"=="1" (
     xcopy /e /i /q %%a\target\quarkus-app %DEST%\servicos\%%b >nul
   )
 )
-if not exist %DEST%\keycloak\bin\kc.bat (
-  echo ^> Keycloak %KC_VER%...
-  curl -fsSL -o keycloak.zip https://github.com/keycloak/keycloak/releases/download/%KC_VER%/keycloak-%KC_VER%.zip || (echo X download do Keycloak falhou & exit /b 1)
-  tar -xf keycloak.zip -C %DEST% || exit /b 1
-  if exist %DEST%\keycloak rmdir /s /q %DEST%\keycloak
-  ren %DEST%\keycloak-%KC_VER% keycloak
-  del keycloak.zip
-)
-if not exist %DEST%\keycloak\data\import mkdir %DEST%\keycloak\data\import
-copy /y keycloak\fruteira-realm.json %DEST%\keycloak\data\import\ >nul
+if exist %DEST%\keycloak rmdir /s /q %DEST%\keycloak
 copy /y producao-modelo\* %DEST%\ >nul
 copy /y .env.example %DEST%\.env.example >nul
 if exist certificado.pfx if not exist %DEST%\certificado.pfx copy certificado.pfx %DEST%\ >nul

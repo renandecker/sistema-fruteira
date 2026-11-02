@@ -15,7 +15,7 @@ public class Auditor {
     @Inject RoutingContext rc;
     @Inject ObjectMapper mapper;
 
-    /** Usuário do token Keycloak (produção) ou null se não autenticado (desenvolvimento). */
+    /** Usuário do token (produção) ou null se não autenticado (desenvolvimento). */
     public Quem autenticado() {
         if (identity == null || identity.isAnonymous()) return null;
         var r = identity.getRoles();

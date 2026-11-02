@@ -15,7 +15,7 @@ cd vendas-service   && mvn quarkus:dev     # :8083
 cd retaguarda-service && mvn quarkus:dev   # :8084  (fornecedores, clientes, cotações, contas, NFC-e, usuários)
 cd pdv-web && npm i && npm run dev         # :5173
 ```
-Requer JDK 21, Maven e Node (Em dev o banco é um H2 em arquivo (pasta data/ da raiz, compartilhado pelos 4 serviços), sem Docker).
+Requer JDK 21, Maven, Node e **Docker** na máquina de desenvolvimento: o `iniciar` sobe o PostgreSQL pelo `docker-compose.yml` (padrão; `USAR_DOCKER=false` no `.env` volta ao H2 em arquivo, sem Docker). Com `APP_ENV=producao` ele testa o perfil de produção (login com token). O Docker é **só local**: o servidor de produção não usa.
 Sem balança física: no console do navegador `__simulaPeso(0.350)`.
 
 ## Já implementado
@@ -40,19 +40,20 @@ Copie `.env.example` para `.env` e escolha `APP_ENV`:
 
 | | `desenvolvimento` | `producao` |
 |---|---|---|
-| Login | tela local (gerente/gerente, supervisor/supervisor, operador/operador) | **Keycloak (OIDC + PKCE)** |
-| APIs Quarkus | abertas (OIDC desligado) | exigem Bearer token; **perfil validado por rota** |
-| Banco | H2 em arquivo (`data/fruteira`, único) | PostgreSQL (`DB_URL`, `DB_USER`, `DB_PASS`) |
+| Login | tela local (gerente/gerente, supervisor/supervisor, operador/operador) | **login próprio** (usuários no banco, senha PBKDF2, token JWT) |
+| APIs Quarkus | abertas (JWT desligado) | exigem Bearer token; **perfil validado por rota** |
+| Banco | PostgreSQL em Docker local (ou H2 com `USAR_DOCKER=false`) | PostgreSQL (`DB_URL`, `DB_USER`, `DB_PASS`) |
 | Dados de exemplo | sim | não |
 | Execução | `quarkus:dev` + Vite | jars (`mvn package`) + front buildado, servidos pelo `fruteira-launcher.jar` (só Java) |
+| Docker | **local:** PostgreSQL (dev) | **local:** `docker-compose.yml` (PostgreSQL) para testar este perfil. **Servidor real: sem Docker** |
 | Instalado no servidor | — | **só Java 21 + PostgreSQL** (sem Docker, Node, Maven ou nginx) |
 
 `iniciar.sh` / `iniciar.bat` leem o `.env` e fazem o resto. Em produção eles recusam senhas que comecem com `troque`.
 
 ### Produção: como funciona
-1. **Keycloak** sobe com o realm `fruteira` importado de `keycloak/fruteira-realm.json`: roles `gerente`, `supervisor`, `operador`, client público `pdv-web` (PKCE) e client `fruteira-api` (bearer-only). Usuários iniciais `gerente`/`supervisor`/`operador` com senha temporária `trocar123` (o Keycloak exige trocar no 1º acesso).
-2. **Front** (`src/auth.js`): `login-required` no Keycloak, anexa `Authorization: Bearer` em todo `/api/*`, renova o token e define o perfil pela role mais alta. Em `Usuários e perfis`, abre o console do Keycloak.
-3. **Quarkus** (`application.properties`, bloco `%prod`): `quarkus-oidc` valida o token e lê as roles de `realm_access/roles`. As políticas por rota/método ficam em `quarkus.http.auth.permission.*`:
+1. **Login próprio** (`retaguarda-service`, `POST /usuarios/login`): confere usuário/senha (PBKDF2, bloqueio de 5 min após 5 erros) e devolve um token JWT (HS256, `JWT_HORAS`, padrão 12 h) com o perfil (`gerente`, `supervisor`, `operador`). O 1º gerente nasce com `ADMIN_SENHA_INICIAL`; senhas criadas/redefinidas pelo gerente são **provisórias** (troca obrigatória no 1º acesso, mínimo de 8 caracteres).
+2. **Front** (`src/auth.js`, `Login.jsx`): guarda o token na sessão do navegador, anexa `Authorization: Bearer` em todo `/api/*` e volta ao login se o token vencer. `Usuários e perfis` cria usuários, perfis e redefine senhas.
+3. **Quarkus** (`application.properties`, bloco `%prod`): `quarkus-smallrye-jwt` valida o token com o mesmo `JWT_SEGREDO` (arquivo `run/jwt.jwk` criado pelo launcher) e lê os perfis do claim `groups`. As políticas por rota/método ficam em `quarkus.http.auth.permission.*`:
 
 | Serviço | Operador | Supervisor | Gerente |
 |---|---|---|---|
@@ -63,10 +64,16 @@ Copie `.env.example` para `.env` e escolha `APP_ENV`:
 
    O token do usuário é repassado nas chamadas entre microsserviços (`propagateHeaders=Authorization`). Qualquer rota não listada exige apenas estar autenticado.
 
-### Produção (só Java + PostgreSQL)
-O `fruteira-launcher.jar` sobe tudo sem Docker: cria os bancos no PostgreSQL instalado, inicia o Keycloak (distribuição em `keycloak/`), os 5 serviços Quarkus e o front (servidor web embutido com proxy `/api/<serviço>`). Em `http://<servidor>:5173` (front) e `:8180` (Keycloak). HTTPS é opcional com certificado `.p12` (`WEB_TLS_P12`/`WEB_TLS_SENHA`, `KEYCLOAK_TLS_P12`/`KEYCLOAK_TLS_SENHA`). Se `FRONT_URL` mudar, o launcher atualiza as URLs de retorno do cliente no Keycloak.
+### Produção local com Docker (só para testar)
+No `.env` da raiz: `APP_ENV=producao`, `DB_PASS`, `JWT_SEGREDO` (32+ caracteres) e `ADMIN_SENHA_INICIAL` reais (nada de `troque…`) e `./iniciar.sh` (ou `iniciar.bat`): sobe `docker compose` (PostgreSQL 16), compila os 5 jars, inicia os serviços e o front (`vite preview` em `http://localhost:5173`). `./parar.sh` também para o Docker (`docker compose stop`; `down -v` apaga os dados). Não use na internet.
+
+### Vários caixas em computadores diferentes
+Servidor único (Java + PostgreSQL) e caixas só com navegador. Requisitos: **HTTPS** (`certificado.sh|bat IP-DO-SERVIDOR`, depois instalar `certs/fruteira.cer` em cada caixa), **um usuário por caixa** (criado em Usuários e perfis), **código de terminal** diferente em cada caixa (Configurações) e, para cartão, o **agente TEF no computador de cada caixa** (`tef.sh|bat`: Java 21 + `servicos/tef-agent` + `.env` com `FRONT_URL`, `TEF_PROVIDER`, `TEF_TOKEN`). O Pix é gerado pelo servidor para cada caixa. Detalhes no documento de regras (seção 7.1).
+
+### Produção real (só Java + PostgreSQL, sem Docker)
+O `fruteira-launcher.jar` sobe tudo sem Docker: cria o banco no PostgreSQL instalado, gera a chave do token de login (`run/jwt.jwk`), inicia os 4 serviços Quarkus e o front (servidor web embutido com proxy `/api/<serviço>`). Em `http://<servidor>:5173`. HTTPS com certificado `.p12` (`WEB_TLS_P12`/`WEB_TLS_SENHA`) é opcional só se tudo roda no próprio servidor; com caixas em outros computadores é **obrigatório** (use `certificado`).
 - Firewall: libere só 5173 e 8180 para a rede da loja; 8081–8084, 8090 e 5432 ficam fechadas para fora.
-- Troque as senhas temporárias `trocar123` e as do `.env`; faça backup com `backup/` (ver seção Backup).
+- Guarde o `.env` (tem `JWT_SEGREDO` e senhas) e faça backup com `backup/` (ver seção Backup).
 
 **Limitações conhecidas:** `/estoque/baixa` é liberada ao operador (necessária para vendas), então a mesma rota serve a perdas lançadas por quem tiver acesso; o login offline com cache local só existe em desenvolvimento.
 
@@ -126,7 +133,7 @@ Segue o roteiro do `pix.txt`: o React nunca fala com o PSP; o servidor Java guar
 - **Webhook com Ngrok (testar o Pix real sem domínio):** a URL do webhook (a que o gerente registra no provedor, ou que vai em cada cobrança no Mercado Pago) vale para **todos** os provedores e é resolvida nesta ordem: `FRUTEIRA_PIX_WEBHOOK_URL` (fixa, vence) → `NGROK_URL` → o túnel que o próprio Ngrok informa em `http://127.0.0.1:4040/api/tunnels` (só em desenvolvimento). A URL fica `{túnel}/pix/webhook?token={segredo}`.
   - **Como usar:** instale o [Ngrok](https://ngrok.com/download), `ngrok config add-authtoken SEU_TOKEN` (ou `NGROK_AUTHTOKEN` no `.env`) e ponha `USAR_NGROK=true` no `.env`: `iniciar.sh/.bat` abrem `ngrok http 8083` (com `NGROK_DOMINIO` se você tem domínio reservado), mostram o endereço e passam-no ao `vendas-service`; `parar.sh/.bat` fecham o túnel. Ou abra você mesmo `ngrok http 8083`: o serviço descobre sozinho.
   - **Registrar:** em Configurações → Balança e periféricos → PIX, **Registrar webhook no PSP (gerente)** usa o endereço de *agora* e mostra a URL (sem o segredo) e de onde ela veio. No plano grátis o endereço muda a cada início do Ngrok: registre de novo, ou use `PIX_WEBHOOK_AUTO_REGISTRAR=true` (registra ao subir; **sobrescreve** o webhook da conta no provedor, então não use com a conta de produção da loja). Mercado Pago não registra: a URL vai em cada cobrança.
-  - **Segurança:** o túnel aponta direto para o `vendas-service` (porta 8083), nunca para o front. Pelo endereço do Ngrok **só o `POST /pix/webhook` responde** (`NgrokFilter`; o resto da API devolve 404), e o segredo (`FRUTEIRA_PIX_WEBHOOK_SEGREDO`) continua obrigatório. Se preferir expor pelo front/nginx, use `NGROK_CAMINHO=/api/vendas/pix/webhook` (aí a proteção do restante da API é a do nginx/Keycloak).
+  - **Segurança:** o túnel aponta direto para o `vendas-service` (porta 8083), nunca para o front. Pelo endereço do Ngrok **só o `POST /pix/webhook` responde** (`NgrokFilter`; o resto da API devolve 404), e o segredo (`FRUTEIRA_PIX_WEBHOOK_SEGREDO`) continua obrigatório. Se preferir expor pelo front/nginx, use `NGROK_CAMINHO=/api/vendas/pix/webhook` (aí a proteção do restante da API é a do nginx e do login por token).
   - Variáveis: `USAR_NGROK`, `NGROK_AUTHTOKEN`, `NGROK_DOMINIO`, `NGROK_URL`, `NGROK_ARGS`, `NGROK_CAMINHO`, `NGROK_API` (padrão só em dev), `NGROK_PORTA` (8083), `PIX_WEBHOOK_AUTO_REGISTRAR`. A pasta de produção não inicia o Ngrok; lá use uma URL fixa.
   - ⚠ A resolução da URL (`PixWebhook`) é coberta por `vendas-service/testar-pix.sh`; o `NgrokFilter`, o `PixWebhookAuto` e o uso real do Ngrok **ainda não foram compilados/rodados** com Quarkus e o Ngrok de verdade (sem Maven nem conta Ngrok aqui): na 1ª vez, abra o túnel e confira em Configurações → PIX → *Testar Pix no servidor* se a URL aparece; um `curl` em `https://SEU-TUNEL/pix/status` deve dar 404 e `POST /pix/webhook` sem token, 401.
 - **Rede de segurança:** se o webhook não chegar, o servidor confere a cobrança no PSP a cada 10 s enquanto o caixa consulta. Cobrança vencida vira `EXPIRADA`; pagamento que chega depois de expirar/cancelar **vale como pago** (o dinheiro entrou).
@@ -260,7 +267,7 @@ Tela **Relatórios → Auditoria** (somente gerente): quem fez, quando, o quê e
 | Fechamento de caixa (valor contado, esperado e **diferença**) | Cadastro |
 
 - **Como funciona:** cada serviço chama `Auditor.registrar(...)` e envia o evento ao `retaguarda-service` (`POST /auditoria`), que grava na tabela `Auditoria`. No retaguarda, a gravação entra na mesma transação do negócio.
-- **Quem fez:** em **produção**, vem do token do Keycloak (o corpo do evento é ignorado); em **desenvolvimento**, dos cabeçalhos `X-Usuario`/`X-Perfil` que o front envia após o login local.
+- **Quem fez:** em **produção**, vem do token de login (o corpo do evento é ignorado); em **desenvolvimento**, dos cabeçalhos `X-Usuario`/`X-Perfil` que o front envia após o login local.
 - **Somente inclusão:** a API não tem alterar/excluir auditoria. Em produção, reforce no banco: crie um usuário de aplicação sem `UPDATE`/`DELETE` na tabela `auditoria`.
 - **Limitações:** nos serviços catálogo/estoque/vendas o registro é *best-effort* (se o retaguarda estiver fora do ar a operação continua e fica um aviso no log); vendas e baixas automáticas de estoque não entram (volume). O fechamento de caixa não devolve mais a diferença ao operador: ela só aparece aqui.
 
@@ -279,7 +286,7 @@ Tela **Relatórios → Auditoria** (somente gerente): quem fez, quando, o quê e
 | Encartes / WhatsApp | retaguarda | gera texto e abre `wa.me` por cliente; envio em massa automático exige WhatsApp Cloud API |
 | Etiquetas e EAN-13 | — | EAN-13 de peso variável (2+PLU+valor), impressão pelo navegador |
 | Self-checkout, Consulta de preço | vendas | usam a balança; PIX do autoatendimento é demonstrativo |
-| Usuários e perfis | retaguarda | PIN com hash; login real = Keycloak |
+| Usuários e perfis | retaguarda | senha com hash PBKDF2; login próprio com token |
 | Balança e periféricos | local | baud rate, TEF (somente configuração), impressora, gaveta, coordenadas |
 
 ## NCM (validação, rotina diária e TEF)
@@ -311,11 +318,11 @@ Catálogo em `pdv-web/src/cartoes.js` e `vendas-service/.../Cartoes.java` (mante
 
 ## Pasta de produção (um ZIP, só Java + PostgreSQL)
 
-`./gerar-producao.sh --zip` (Windows: `gerar-producao.bat --zip`) monta `producao/` e `fruteira-producao.zip` com tudo que o servidor precisa: `fruteira-launcher.jar`, `servicos/` (5 jars Quarkus), `web/`, `keycloak/` (26.0.8 + realm), `.env.example`, `iniciar|parar|status|backup|restaurar|agendar-backup` (.sh/.bat) e `LEIA-ME.txt`.
-- **Servidor:** instale apenas Java 21 e PostgreSQL, extraia o ZIP, rode `iniciar`. Na 1ª vez ele cria o `.env` com senhas aleatórias; ajuste `PG_ADMIN_PASS`, `KEYCLOAK_URL` e `FRONT_URL`.
+`./gerar-producao.sh --zip` (Windows: `gerar-producao.bat --zip`) monta `producao/` e `fruteira-producao.zip` com tudo que o servidor precisa: `fruteira-launcher.jar`, `servicos/` (5 jars Quarkus), `web/`, `.env.example`, `iniciar|parar|status|backup|restaurar|agendar-backup` (.sh/.bat) e `LEIA-ME.txt`.
+- **Servidor:** instale apenas Java 21 e PostgreSQL, extraia o ZIP, rode `iniciar`. Na 1ª vez ele cria o `.env` com senhas aleatórias (inclusive `JWT_SEGREDO` e a senha inicial do gerente, mostrada no terminal); ajuste `PG_ADMIN_PASS` e `FRONT_URL`.
 - **Máquina de desenvolvimento** (JDK 21, Maven, Node): rode o gerador. `--sem-jars` pula o Maven (aí `servicos/` precisa ser gerada em outra máquina).
 - O `.env` nunca vai no ZIP. Atualizar: pare, troque `servicos/`, `web/` e o launcher, inicie.
-- Variáveis novas: `PG_ADMIN_USER/PG_ADMIN_PASS`, `PG_BIN`, `KEYCLOAK_PORT`, `WEB_PORT`, `WEB_TLS_*`, `KEYCLOAK_TLS_*`, `BACKUP_*`, `SUPERVISOR_PIN`.
+- Variáveis novas: `PG_ADMIN_USER/PG_ADMIN_PASS`, `PG_BIN`, `JWT_SEGREDO`, `JWT_HORAS`, `ADMIN_SENHA_INICIAL`, `WEB_PORT`, `WEB_TLS_*`, `BACKUP_*`, `SUPERVISOR_PIN`.
 
 ## Caixa: turno, sangria e fechamento cego
 
@@ -367,6 +374,27 @@ Emissor **separado** da NFC-e, usado só quando a empresa compradora exige nota 
 - **Corrigido nesta revisão:** identificador do CSC no QR Code sem zeros à esquerda (`000001` → `1`); `cNF` nunca igual ao número da nota nem sequencial (rejeição da SEFAZ).
 - ⚠ **Não verificado:** nunca falei com a SEFAZ de verdade (sem certificado ICP-Brasil nem rede aqui): os endereços padrão do RS (`FISCAL_URL_*`, `FISCAL_NFE_URL_*`, `*_STATUS`) e os nomes das operações SOAP são os conhecidos, não conferidos; confirme no portal da SEFAZ-RS (a NFC-e do RS pode estar na SVRS, `nfce.svrs.rs.gov.br`) e sobrescreva no `.env` se preciso.
 
+## Observabilidade (tudo opcional, desligado por padrão)
+
+Cada ferramenta só carrega (arquivo separado) quando a chave está no `.env`; sem chave não há custo nem tráfego. No servidor as chaves vão para o navegador por `/config.js` (sem rebuild).
+
+| Ferramenta | Onde | Como ligar |
+|---|---|---|
+| OpenTelemetry (backend) | 5 serviços Quarkus | `OTEL_ENABLED=true` + `OTEL_EXPORTER_OTLP_ENDPOINT` (+ `OTEL_EXPORTER_OTLP_HEADERS`). Amostragem `OTEL_TRACES_SAMPLER_ARG` (0.1) |
+| OpenTelemetry (navegador) | front | `OBS_OTEL_WEB_ENDPOINT` (OTLP/HTTP, `.../v1/traces`); envia `traceparent` só às chamadas `/api` do próprio servidor, ligando o clique ao backend |
+| Dynatrace | backend e front | backend: `OTEL_ENABLED=true`, `DYNATRACE_OTLP_URL`, `DYNATRACE_TOKEN` e `DYNATRACE_AUTH` (`Bearer` com token de plataforma, escopo `openpipeline:traces:ingest`; `Api-Token` com token clássico, escopo `openTelemetryTrace.ingest`). O launcher força `http/protobuf` (o Dynatrace não aceita gRPC). Front: `OBS_DYNATRACE_SCRIPT` (script RUM da aplicação); OTLP direto do navegador ao Dynatrace é ignorado (exporia o token) |
+| Grafana Faro | front | `OBS_FARO_URL` (coletor Alloy/Grafana Cloud) |
+| Sentry | front | `OBS_SENTRY_DSN` |
+| Bugsnag + Rollbar | front | `OBS_BUGSNAG_KEY` (projeto Browser; região/on-premise: `OBS_BUGSNAG_NOTIFY_URL`, `OBS_BUGSNAG_SESSIONS_URL`) e `OBS_ROLLBAR_TOKEN` (token de **cliente**, `post_client_item`; EU: `OBS_ROLLBAR_ENDPOINT`). Ligados juntos, cada erro vai para os dois (alertas duplicados por desenho) |
+| PostHog | front | `OBS_POSTHOG_KEY` (+ `OBS_POSTHOG_HOST`): eventos de uso; sem autocapture e sem gravação de tela |
+| React Profiler | front | `OBS_PROFILER=true`: renderizações acima de `OBS_PROFILER_LIMIAR_MS` (50 ms) viram evento `render_lento` |
+| React Scan / DevTools | só desenvolvimento | `OBS_REACT_SCAN=true`; `OBS_REACT_DEVTOOLS=true` e `npm run devtools` (em `pdv-web`) |
+
+- **LGPD:** nada de CPF, CNPJ, e-mail, cartão, token, senha ou PIN sai do navegador (limpeza central em `observabilidade.js`); URLs perdem a query string; o usuário vai como id opaco (hash) + perfil. Telemetria nunca derruba o PDV (erros dela são engolidos).
+- Erros de renderização caem numa tela de recuperação (`ObsRaiz`) e são reportados já limpos.
+- Os endereços de coleta precisam ser alcançáveis dos caixas; chaves públicas de navegador ficam visíveis no `/config.js`: não ponha tokens de servidor em `OBS_*`.
+- **Não verificado:** os SDKs nunca falaram com Sentry, Grafana, Dynatrace, PostHog etc. de verdade (sem contas nem rede); só build, testes unitários e a limpeza de dados foram conferidos.
+
 ## Backup (pendrive ou Google Drive)
 
 `backup` / `restaurar` (na pasta de produção, só Java): `backups/fruteira-AAAAMMDD-HHMMSS-prod.zip[.enc]` + `.sha256` com os dois bancos (`pg_dump` do PostgreSQL instalado), `.env`, certificado A1 e realm.
@@ -394,7 +422,7 @@ Emissor **separado** da NFC-e, usado só quando a empresa compradora exige nota 
 - **TEF real**: trocar `TEF_PROVIDER=simulador` pelo provedor contratado (CliSiTef/PayGo) e homologar; vales (Alelo, Ticket, Pluxee, VR...) estão lançados manualmente, sem autorização online.
 - **PIX real**: `PIX_PROVIDER=EFI` (ou ITAU, BRADESCO, SICOOB, SICREDI) com as variáveis `PIX_<PROVEDOR>_*`, o certificado do provedor e `FRUTEIRA_PIX_WEBHOOK_SEGREDO`; MERCADO_PAGO e ASAAS usam as variáveis `PIX_MERCADO_PAGO_*` / `PIX_ASAAS_*`.
 - **Migrations Flyway** (só no retaguarda-service; seção *Banco de dados*): conferidas contra PostgreSQL (PGlite) e as `@Entity`, mas nunca executadas pelo Flyway/Maven nem no H2 reais; valide na primeira subida (dev e produção).
-- Trocar as senhas temporárias do Keycloak (`trocar123`) e definir `TEF_TOKEN` igual nos caixas.
+- Definir `JWT_SEGREDO` e `ADMIN_SENHA_INICIAL` próprios, criar um usuário por caixa e definir `TEF_TOKEN` igual nos caixas.
 - Testes automatizados existem só no front (24); faltam testes dos serviços Java.
 
 **Evoluções**

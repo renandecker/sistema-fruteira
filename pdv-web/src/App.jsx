@@ -1,4 +1,5 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { identificar, pagina } from './observabilidade.js'
 import PDV from './PDV.jsx'
 import { MENU, NIVEL } from './menu.js'
 import { EmBreve, Produtos, Entrada, Perdas, RelPerdas, Abc } from './paginas.jsx'
@@ -14,7 +15,7 @@ import Nfe from './Nfe.jsx'
 import RelClientes from './RelClientes.jsx'
 import { Caixa, CaixaGerente } from './Caixa.jsx'
 import Login from './Login.jsx'
-import { PROD, sairKeycloak } from './auth.js'
+import { PROD, limparSessao } from './auth.js'
 import './theme.css'
 
 const PAGINAS = { pdv: PDV, produtos: Produtos, entrada: Entrada, perdas: Perdas, relperdas: RelPerdas, abc: Abc, fechamento: Caixa, caixagerente: CaixaGerente,
@@ -24,11 +25,12 @@ const PAGINAS = { pdv: PDV, produtos: Produtos, entrada: Entrada, perdas: Perdas
 
 export default function App({ usuarioInicial }) {
   const [atual, setAtual] = useState('pdv'); const [aberto, setAberto] = useState(true); const [user, setUser] = useState(() => { try { return usuarioInicial ?? JSON.parse(sessionStorage.getItem('user') || 'null') } catch { return null } })
+  useEffect(() => { identificar(user) }, [user]); useEffect(() => { pagina(atual) }, [atual])
   const entrar = u => { sessionStorage.setItem('user', JSON.stringify(u)); setUser(u); setAtual('pdv') }
-  const sair = () => { if (PROD) return sairKeycloak(); sessionStorage.removeItem('user'); setUser(null) }
+  const sair = () => { limparSessao(); setUser(null) }
   if (!user) return <Login onLogin={entrar} />
   if (PROD && !user.perfil) return <div className="login-bg"><div className="login-card"><h2>Sem perfil de acesso</h2>
-    <p>Seu usuário não possui um dos perfis <b>gerente</b>, <b>supervisor</b> ou <b>operador</b> no Keycloak. Fale com o administrador.</p><button className="btn" onClick={sair}>Sair</button></div></div>
+    <p>Seu usuário não possui um dos perfis <b>gerente</b>, <b>supervisor</b> ou <b>operador</b> cadastrado. Fale com o administrador.</p><button className="btn" onClick={sair}>Sair</button></div></div>
   const perfil = user.perfil
   const todos = MENU.flatMap(g => g.itens); const item = todos.find(i => i.id === atual)
   const Pag = PAGINAS[atual]; const permitido = !item || NIVEL[perfil] >= NIVEL[item.perfil]
@@ -38,7 +40,7 @@ export default function App({ usuarioInicial }) {
         <div className="nav-topo">
           <button className="hamb" onClick={() => setAberto(!aberto)} title="Recolher/expandir menu">☰</button>
           {aberto && <img src="/logo.png" alt="Fruteira Conventos" />}
-          {aberto && <span className={`env ${PROD ? 'prod' : 'dev'}`} title={PROD ? 'Produção (Keycloak)' : 'Desenvolvimento'}>{PROD ? 'PROD' : 'DEV'}</span>}
+          {aberto && <span className={`env ${PROD ? 'prod' : 'dev'}`} title={PROD ? 'Produção' : 'Desenvolvimento'}>{PROD ? 'PROD' : 'DEV'}</span>}
         </div>
         <div className="nav-lista">
           {MENU.map(g => {

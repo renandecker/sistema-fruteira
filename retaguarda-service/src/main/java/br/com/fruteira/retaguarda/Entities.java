@@ -58,6 +58,7 @@ public class Entities {
     @Entity(name = "Usuario") public static class Usuario extends PanacheEntity {
         public String nome; @Column(unique = true) public String login; public String perfil; public boolean ativo = true;
         @JsonIgnore public String pinHash;
+        public boolean provisoria;     // senha criada/redefinida pelo gerente: o usuário troca no 1º acesso (produção)
         @Transient @JsonProperty(access = JsonProperty.Access.WRITE_ONLY) public String pin;
     }
 }

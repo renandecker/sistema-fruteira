@@ -1,0 +1,16 @@
+# SÓ PARA USO LOCAL (máquina de desenvolvimento): o ./iniciar sobe só o PostgreSQL daqui (banco dos serviços).
+# A PRODUÇÃO REAL não usa Docker: veja ./gerar-producao.sh e producao/LEIA-ME.txt (só Java 21 + PostgreSQL).
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-fruteira}
+      POSTGRES_PASSWORD: ${DB_PASS:-fruteira}
+      POSTGRES_DB: fruteira
+    ports: ["127.0.0.1:${PG_DOCKER_PORT:-5442}:5432"]   # porta do host; 5432 costuma estar ocupada/reservada (PostgreSQL local, Hyper-V no Windows)
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-fruteira} -d fruteira"], interval: 5s, timeout: 3s, retries: 20 }
+volumes:
+  pgdata:

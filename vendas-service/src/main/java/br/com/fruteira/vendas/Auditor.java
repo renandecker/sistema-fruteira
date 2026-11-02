@@ -10,7 +10,7 @@ import org.jboss.logging.Logger;
 
 /**
  * Registra cadastro/edição/exclusão na auditoria central (retaguarda-service).
- * Quem fez: em PRODUÇÃO vem do token do Keycloak; em DESENVOLVIMENTO, dos cabeçalhos X-Usuario/X-Perfil enviados pelo front.
+ * Quem fez: em PRODUÇÃO vem do token (JWT emitido no login); em DESENVOLVIMENTO, dos cabeçalhos X-Usuario/X-Perfil enviados pelo front.
  * Best-effort: se a auditoria estiver fora do ar, a operação de negócio NÃO é bloqueada (fica um aviso no log).
  */
 @ApplicationScoped

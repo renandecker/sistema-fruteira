@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Inicia a Fruteira em DESENVOLVIMENTO: 4 serviços Quarkus em modo dev (H2, sem Docker) + Vite.
-# PRODUÇÃO (PostgreSQL + Keycloak sem Docker, só Java) não passa por aqui: ./gerar-producao.sh e depois producao/iniciar.sh
+# Inicia a Fruteira LOCALMENTE (máquina de desenvolvimento):
+#   APP_ENV=desenvolvimento (padrão) -> serviços Quarkus em modo dev + Vite; banco PostgreSQL em DOCKER (docker-compose.yml). USAR_DOCKER=false no .env -> H2 em arquivo, sem Docker.
+#   APP_ENV=producao                 -> teste local do perfil de produção: PostgreSQL em DOCKER (docker-compose.yml), jars e front buildado, com login próprio (token JWT).
+# A PRODUÇÃO REAL não usa Docker nem este script: ./gerar-producao.sh e depois producao/iniciar.sh (só Java 21 + PostgreSQL).
 set -u
 cd "$(dirname "$0")"
 mkdir -p logs data; PIDS=()
@@ -13,13 +15,10 @@ export FRUTEIRA_HOME="$PWD"
 case "${FISCAL_CERT_PATH:-}" in ""|/*) ;; *) [ -f "$PWD/$FISCAL_CERT_PATH" ] && export FISCAL_CERT_PATH="$PWD/$FISCAL_CERT_PATH";; esac     # relativo → absoluto (os serviços rodam dentro da própria pasta)
 APP_ENV=${APP_ENV:-desenvolvimento}
 case "$APP_ENV" in desenvolvimento|producao) ;; *) echo "❌ APP_ENV inválido: '$APP_ENV' (use desenvolvimento ou producao)"; exit 1;; esac
-if [ "$APP_ENV" = producao ]; then
-  echo "ℹ A produção não usa este script nem Docker: rode ./gerar-producao.sh (gera a pasta producao/) e depois producao/iniciar.sh — só Java 21 e PostgreSQL na máquina."
-  exit 1
-fi
 echo "▶ Ambiente: $APP_ENV"
 
-need=(java mvn node npm)
+USAR_DOCKER=${USAR_DOCKER:-true}
+need=(java mvn node npm); { [ "$APP_ENV" = producao ] || [ "$USAR_DOCKER" != false ]; } && need+=(docker)
 for cmd in "${need[@]}"; do command -v $cmd >/dev/null || { echo "❌ '$cmd' não encontrado no PATH"; exit 1; }; done
 
 cleanup() { echo; echo "Encerrando serviços..."; for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done; wait 2>/dev/null; exit 0; }
@@ -32,6 +31,14 @@ aguardar() { # $1=nome $2=porta
   done
   echo "⚠ $1 não respondeu em 4 min — veja logs/$1.log"
   return 1
+}
+
+aguardar_pronto() { # $1=nome $2=porta: espera resposta HTTP < 500 (em dev, serviço quebrado responde 500 na recuperação)
+  for i in $(seq 1 120); do
+    c=$(curl -s -o /dev/null -w '%{http_code}' --noproxy "*" --max-time 3 "http://127.0.0.1:$2/" 2>/dev/null); [ "${c:-000}" -gt 0 ] 2>/dev/null && [ "${c:-000}" -lt 500 ] && { echo "✔ $1 pronto (porta $2)"; return 0; }
+    sleep 2
+  done
+  echo "⚠ $1 não ficou pronto em 4 min — veja logs/$1.log"; return 1
 }
 
 # Portas do sistema: 4 serviços, agente TEF e front. Processo antigo (execução anterior que não foi encerrada) nelas faz o serviço novo
@@ -76,11 +83,22 @@ liberar_portas() {
 
 liberar_portas
 
-# Desenvolvimento: banco H2 em arquivo (data/fruteira). Sobra de execução anterior (processo morto) deixa um .lock.db que trava a conexão;
-# como as portas dos serviços acabaram de ser liberadas, nenhum serviço nosso está com o banco aberto e o lock pode ser removido.
+# Desenvolvimento: banco PostgreSQL em Docker (padrão) ou H2 em arquivo (USAR_DOCKER=false).
 if [ "$APP_ENV" != producao ]; then
-  mkdir -p data; rm -f data/*.lock.db 2>/dev/null
-  case "$(pwd -P)" in *[Oo]ne[Dd]rive*) echo "⚠ O projeto está dentro do OneDrive: a sincronização pode travar o arquivo do banco (data/fruteira.mv.db). Se der erro de banco, mova a pasta para fora do OneDrive (ex.: C:\\fruteira) ou defina H2_ARQUIVO no .env.";; esac
+  if [ "$USAR_DOCKER" != false ]; then
+    export DB_USER=${DB_USER:-fruteira} DB_PASS=${DB_PASS:-fruteira}
+    export PG_DOCKER_PORT=${PG_DOCKER_PORT:-5442}
+    export DEV_DB_KIND=postgresql DEV_DB_URL="jdbc:postgresql://localhost:$PG_DOCKER_PORT/fruteira"
+    echo "▶ Docker (local): PostgreSQL..."
+    docker compose up -d postgres || { echo "❌ docker compose falhou (o Docker está rodando? Sem Docker: USAR_DOCKER=false no .env)"; exit 1; }
+    for i in $(seq 1 30); do [ "$(docker compose ps --format '{{.Health}}' postgres 2>/dev/null)" = healthy ] && break; sleep 2; done
+    [ "$(docker compose ps --format '{{.Health}}' postgres 2>/dev/null)" = healthy ] || { echo "❌ PostgreSQL do Docker não ficou saudável: docker compose logs postgres"; exit 1; }
+    echo "✔ PostgreSQL no ar (Docker, porta $PG_DOCKER_PORT)"
+  else
+    mkdir -p data; rm -f data/*.lock.db 2>/dev/null
+    export DEV_DB_KIND=h2 DEV_DB_URL="jdbc:h2:file:${H2_ARQUIVO:-../data/fruteira};AUTO_SERVER=TRUE;DB_CLOSE_DELAY=-1"
+    case "$(pwd -P)" in *[Oo]ne[Dd]rive*) echo "⚠ O projeto está no OneDrive: o H2 em arquivo pode travar. Prefira o Docker (padrão) ou defina H2_ARQUIVO fora do OneDrive.";; esac
+  fi
 fi
 
 # Ngrok (opcional, USAR_NGROK=true): túnel HTTPS público só para o webhook do Pix (porta 8083). O endereço (muda a cada início no plano grátis,
@@ -107,6 +125,31 @@ if [ "${USAR_NGROK:-false}" = true ]; then
   fi
 fi
 
+if [ "$APP_ENV" = producao ]; then
+  for k in DB_PASS JWT_SEGREDO ADMIN_SENHA_INICIAL; do case "${!k:-}" in ""|troque*) echo "❌ Defina um valor seguro para $k no .env"; exit 1;; esac; done
+  export PG_DOCKER_PORT=${PG_DOCKER_PORT:-5442} DB_USER=${DB_USER:-fruteira}; export DB_URL="jdbc:postgresql://localhost:$PG_DOCKER_PORT/fruteira"
+  [ "${#JWT_SEGREDO}" -ge 32 ] || { echo "❌ JWT_SEGREDO precisa ter pelo menos 32 caracteres"; exit 1; }
+  mkdir -p run; printf '{"kty":"oct","alg":"HS256","use":"sig","k":"%s"}\n' "$(printf %s "$JWT_SEGREDO" | base64 -w0 2>/dev/null | tr '+/' '-_' | tr -d '=')" > run/jwt.jwk; chmod 600 run/jwt.jwk
+  export JWT_VERIFY_JWK="$PWD/run/jwt.jwk" JWT_SEGREDO ADMIN_SENHA_INICIAL
+  echo "▶ Docker (local): PostgreSQL..."
+  docker compose up -d || { echo "❌ docker compose falhou (o Docker está rodando?)"; exit 1; }
+  aguardar PostgreSQL "$PG_DOCKER_PORT" || exit 1
+  # retaguarda PRIMEIRO (Flyway); jars do perfil prod
+  for s in retaguarda-service:8084 catalogo-service:8081 estoque-service:8082 vendas-service:8083 tef-agent:8090; do
+    nome=${s%%:*}; porta=${s##*:}
+    echo "Compilando e iniciando $nome..."
+    (cd "$nome" && mvn -q package -DskipTests) > "logs/$nome-build.log" 2>&1 || { echo "❌ build de $nome falhou: logs/$nome-build.log"; tail -n 20 "logs/$nome-build.log"; cleanup; }
+    (cd "$nome" && exec java ${JAVA_OPTS:--Xmx384m} -jar target/quarkus-app/quarkus-run.jar) > "logs/$nome.log" 2>&1 &
+    PIDS+=($!)
+    aguardar "$nome" "$porta" || { tail -n 25 "logs/$nome.log"; [ "$nome" = retaguarda-service ] && cleanup; }
+  done
+  echo "Compilando e iniciando pdv-web (preview)..."
+  (cd pdv-web && { [ -d node_modules ] || npm install; } && APP_ENV=producao npm run build && exec npx vite preview --host --port 5173) > logs/pdv-web.log 2>&1 &
+  PIDS+=($!); aguardar pdv-web 5173
+  echo; echo "🍎 No ar (produção LOCAL com Docker): ${FRONT_URL:-http://localhost:5173}  —  entre como gerente com ADMIN_SENHA_INICIAL"
+  echo "Docker fica de pé ao encerrar; para derrubar: docker compose down  (dados: docker compose down -v)"; wait; exit 0
+fi
+
 # retaguarda PRIMEIRO: é o dono do Flyway (cria/atualiza o banco); os outros só validam o schema
 for s in retaguarda-service:8084 catalogo-service:8081 estoque-service:8082 vendas-service:8083 tef-agent:8090; do
   nome=${s%%:*}; porta=${s##*:}
@@ -126,5 +169,6 @@ PIDS+=($!); aguardar pdv-web 5173
 echo
 echo "🍎 Tudo no ar (desenvolvimento): http://localhost:5173"
 echo "🔑 Login local: gerente/gerente, supervisor/supervisor, operador/operador"
+[ "$USAR_DOCKER" != false ] && echo "🐘 Banco: PostgreSQL no Docker (docker compose stop para pausar; down -v apaga os dados)"
 echo "Logs em ./logs  —  Ctrl+C para parar"
 wait
