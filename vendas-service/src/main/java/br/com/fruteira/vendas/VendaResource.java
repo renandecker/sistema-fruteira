@@ -37,7 +37,7 @@ public class VendaResource {
     public Venda finalizar(VendaReq req) {
         Venda v = new Venda(); v.usuario = auditor.usuario();
         // CPF opcional (venda anônima): se informado, os dígitos verificadores precisam conferir ANTES de qualquer baixa de estoque ou pagamento
-        try { v.cpfCliente = Cpf.normalizarOuNulo(req.cpf()); } catch (IllegalArgumentException ex) { throw Http.erro(422, "CPF inválido"); } List<String> problemasNcm = new ArrayList<>();
+        try { v.cpfCliente = Cpf.normalizarDocumentoOuNulo(req.cpf()); } catch (IllegalArgumentException ex) { throw Http.erro(422, ex.getMessage()); } List<String> problemasNcm = new ArrayList<>();
         for (ItemReq ir : req.itens()) {
             ProdutoDTO p = catalogo.buscar(ir.produtoId());
             if (Boolean.FALSE.equals(p.ativo())) throw new WebApplicationException("Produto desativado: " + p.nome(), 422);
@@ -110,7 +110,7 @@ public class VendaResource {
         // auditoria da venda (best-effort: se a auditoria estiver fora do ar, a venda não é bloqueada)
         StringBuilder meios = new StringBuilder();
         for (Pagamento pg : v.pagamentos) meios.append(meios.length() == 0 ? "" : " + ").append(pg.meio).append(" R$ ").append(pg.valor);
-        String cpfMask = v.cpfCliente == null ? "sem CPF" : "CPF ***" + v.cpfCliente.substring(Math.max(0, v.cpfCliente.length() - 4));
+        String cpfMask = v.cpfCliente == null ? "sem documento" : (v.cpfCliente.length() == 14 ? "CNPJ ***" : "CPF ***") + v.cpfCliente.substring(Math.max(0, v.cpfCliente.length() - 4));
         auditor.registrar("VENDA", "Venda", v.id, "Venda #" + v.id + " finalizada: " + v.itens.size() + " item(ns), total R$ " + v.total
             + (v.desconto.signum() > 0 ? " (desconto R$ " + v.desconto + ")" : "") + " | " + meios + " | " + cpfMask, null, null);
         return v;

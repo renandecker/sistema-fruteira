@@ -1,6 +1,7 @@
 package br.com.fruteira.retaguarda;
 
 import br.com.fruteira.retaguarda.Entities.Nota;
+import br.com.fruteira.retaguarda.Entities.NotaImpressao;
 import br.com.fruteira.retaguarda.fiscal.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.quarkus.narayana.jta.QuarkusTransaction;
@@ -34,6 +35,8 @@ public class NfceResource {
     public record Emitir(Long vendaId, BigDecimal valor, String cpf, String nome, boolean contingencia, String cartoes, List<ItemIn> itens, List<PagIn> pagamentos) {}
     public record CorrigirCpf(String cpf, String nome) {}
     public record Cancelar(String justificativa) {}
+    public record ImpressaoIn(String origem, String terminal) {}
+    public record ResultadoImpressao(String resultado, String erro) {}
 
     @GET public List<Nota> listar() { return Nota.find("modelo is null or modelo = '65' order by id desc").list(); }
 
@@ -81,6 +84,79 @@ public class NfceResource {
     public Response xml(@PathParam("id") Long id) {
         Nota n = achar(id); if (n.xml == null) throw new NotFoundException();
         return Response.ok(n.xml).header("Content-Disposition", "attachment; filename=\"" + n.chave + ".xml\"").build();
+    }
+
+    // ---------------------------------------------------------------- DANFE guardado e tentativas de impressão
+    private static final Map<String, String> MEIOS = Map.of("01", "DINHEIRO", "03", "CREDITO", "04", "DEBITO", "05", "CADERNO", "10", "VALE ALIMENTACAO", "11", "VALE REFEICAO", "17", "PIX");
+
+    private static void exigirImprimivel(Nota n) {
+        if (n.modelo != null && !"65".equals(n.modelo)) throw Http.erro(422, "Este DANFE é só da NFC-e (modelo 65)");
+        if (!"AUTORIZADA".equals(n.status) && !"CONTINGENCIA".equals(n.status)) throw Http.erro(422, "Só imprime nota autorizada ou em contingência (status atual: " + n.status + ")");
+    }
+
+    /** Tudo o que o DANFE precisa, vindo da nota guardada (retorno da SEFAZ + itens/pagamentos enviados na emissão): reimprime mesmo sem o vendas-service. */
+    @GET @Path("/{id}/danfe")
+    public Map<String, Object> danfe(@PathParam("id") Long id) {
+        Nota n = achar(id); exigirImprimivel(n);
+        List<Map<String, Object>> itens = new ArrayList<>(), pagamentos = new ArrayList<>();
+        if (n.payload != null) {
+            try {
+                Emitir e = JSON.readValue(n.payload, Emitir.class);
+                if (e.itens() != null) for (ItemIn i : e.itens()) itens.add(Map.of("nome", String.valueOf(i.nome()), "quantidade", i.qtd(), "unidade", i.unidade() == null ? "UN" : i.unidade(), "precoUnit", i.valorUnit(), "subtotal", i.valor()));
+                if (e.pagamentos() != null) for (PagIn p : e.pagamentos()) pagamentos.add(Map.of("meio", MEIOS.getOrDefault(p.tPag() == null ? "" : p.tPag(), "OUTROS"), "valor", p.valor()));
+            } catch (Exception ex) { LOG.warning("Payload da NFC-e " + id + " ilegível: " + ex.getMessage()); }
+        }
+        var c = fiscal.configAtual();
+        Map<String, Object> nota = new LinkedHashMap<>();
+        nota.put("id", n.id); nota.put("numero", n.numero); nota.put("serie", n.serie == null ? c.serie : n.serie); nota.put("vendaId", n.vendaId); nota.put("status", n.status); nota.put("cStat", n.cStat); nota.put("xMotivo", n.xMotivo);
+        nota.put("chave", n.chave); nota.put("protocolo", n.protocolo); nota.put("dhAutorizacao", n.dhAutorizacao); nota.put("cpf", n.cpf); nota.put("valor", n.valor); nota.put("data", n.data);
+        nota.put("qrCode", n.qrCode); nota.put("urlChave", n.urlChave); nota.put("tpEmis", n.tpEmis); nota.put("tpAmb", fiscal.real() ? (fiscal.ambiente() == 1 ? 1 : 2) : 0);
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("nota", nota); r.put("itens", itens); r.put("pagamentos", pagamentos);
+        r.put("empresa", Map.of("nome", (c.fantasia == null || c.fantasia.isBlank()) ? String.valueOf(c.razao) : c.fantasia, "cnpj", c.cnpj == null ? "" : c.cnpj));
+        r.put("tentativas", tentativas(id));
+        return r;
+    }
+
+    private List<NotaImpressao> tentativas(Long notaId) { return NotaImpressao.list("notaId = ?1 order by tentativa", notaId); }
+
+    @GET @Path("/{id}/impressoes")
+    public List<NotaImpressao> impressoes(@PathParam("id") Long id) { achar(id); return tentativas(id); }
+
+    /** Registra que o DANFE vai ser impresso agora (tentativa ENVIADA). O caixa confirma depois com /impressoes/{id}/resultado. */
+    @POST @Path("/{id}/impressoes")
+    public NotaImpressao registrarImpressao(@PathParam("id") Long id, ImpressaoIn in) {
+        String origem = in == null || in.origem() == null ? "REIMPRESSAO" : in.origem().toUpperCase();
+        if (!origem.equals("EMISSAO") && !origem.equals("REIMPRESSAO")) throw Http.erro(422, "Origem inválida: " + origem);
+        String terminal = in == null || in.terminal() == null ? null : (in.terminal().length() > 60 ? in.terminal().substring(0, 60) : in.terminal());
+        String usuario = auditor.usuario();
+        NotaImpressao t = QuarkusTransaction.requiringNew().call(() -> {
+            Nota n = achar(id); exigirImprimivel(n);
+            NotaImpressao x = new NotaImpressao();
+            x.notaId = id; x.tentativa = (n.tentativasImpressao == null ? 0 : n.tentativasImpressao) + 1; x.usuario = usuario; x.terminal = terminal; x.origem = origem; x.resultado = "ENVIADA";
+            x.persist(); n.tentativasImpressao = x.tentativa; n.ultimaImpressao = "ENVIADA"; Nota.getEntityManager().merge(n);
+            return x;
+        });
+        if (origem.equals("REIMPRESSAO")) audit("IMPRESSAO", "NFC-e", id, "DANFE da NFC-e reimpresso (tentativa " + t.tentativa + ", caixa " + (terminal == null ? "—" : terminal) + ")", null, null);
+        return t;
+    }
+
+    /** O operador diz se o papel saiu: CONFIRMADA ou FALHA (com o motivo). Só a tentativa ainda ENVIADA pode receber resultado: o histórico não é reescrito. */
+    @POST @Path("/impressoes/{iid}/resultado")
+    public NotaImpressao resultadoImpressao(@PathParam("iid") Long iid, ResultadoImpressao r) {
+        String res = r == null || r.resultado() == null ? "" : r.resultado().toUpperCase();
+        if (!res.equals("CONFIRMADA") && !res.equals("FALHA")) throw Http.erro(422, "Resultado deve ser CONFIRMADA ou FALHA");
+        String erro = r.erro() == null ? null : (r.erro().length() > 500 ? r.erro().substring(0, 500) : r.erro());
+        NotaImpressao t = QuarkusTransaction.requiringNew().call(() -> {
+            NotaImpressao x = NotaImpressao.findById(iid); if (x == null) throw new NotFoundException();
+            if (!"ENVIADA".equals(x.resultado)) throw Http.erro(422, "Esta tentativa já tem resultado (" + x.resultado + ")");
+            x.resultado = res; x.erro = res.equals("FALHA") ? erro : null;
+            Nota n = Nota.findById(x.notaId);
+            if (n != null) { if (res.equals("CONFIRMADA")) n.impressa = true; if (n.tentativasImpressao == null || n.tentativasImpressao.equals(x.tentativa)) n.ultimaImpressao = res; Nota.getEntityManager().merge(n); }
+            return x;
+        });
+        if (res.equals("FALHA")) audit("IMPRESSAO", "NFC-e", t.notaId, "Falha ao imprimir o DANFE (tentativa " + t.tentativa + "): " + (erro == null ? "sem motivo informado" : erro), null, null);
+        return t;
     }
 
     @POST @Path("/emitir")

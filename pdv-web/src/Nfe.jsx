@@ -8,7 +8,7 @@ const R = '/api/retaguarda'
 const COR = { AUTORIZADA: 'var(--verde)', PENDENTE: '#e0a100', CANCELADA: 'var(--vermelho)', REJEITADA: 'var(--vermelho)', DENEGADA: 'var(--vermelho)' }
 
 /** DANFE simplificado da NF-e (retrato, A4) para impressão; vale a consulta da chave de acesso no portal da SEFAZ. */
-function DanfeNfe({ nota, venda, empresa }) {
+export function DanfeNfe({ nota, venda, empresa }) {
   const itens = venda?.itens || []
   return <div className="danfe-a4" aria-label="DANFE NF-e">
     <h2>DANFE — Documento Auxiliar da NF-e (simplificado)</h2>

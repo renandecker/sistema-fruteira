@@ -5,9 +5,10 @@ import { useBalanca } from './balanca.js'
 import { PROD } from './auth.js'
 import { abrirBalanca } from './balanca.js'
 import { agente, cartoesTexto } from './tef.js'
-import { montarEmissao, emitirNfce, corrigirCpfNfce, situacaoNota } from './nfce.js'
+import TesteProducao from './TesteProducao.jsx'
+import { montarEmissao, emitirNfce, corrigirCpfNfce, situacaoNota, situacaoImpressao } from './nfce.js'
 import { mascaraCpf, statusCpf } from './cpf.js'
-import { Danfe } from './Danfe.jsx'
+import { ImprimirDanfe } from './Danfe.jsx'
 import CertificadoSefaz from './CertificadoSefaz.jsx'
 import { CamposFiscais, ModalCadastro } from './CadastroFiscal.jsx'
 import { mascaraDoc, docValido, problemasProduto, problemasCliente, problemasFornecedor, listarProblemas } from './fiscal.js'
@@ -250,19 +251,26 @@ export function Dre() {
       <tbody>{Object.keys(dias).sort().map(d => { acc += dias[d].e - dias[d].s; return <tr key={d}><td>{dataBR(d)}</td><td>{brl(dias[d].e)}</td><td>{brl(dias[d].s)}</td><td style={{ color: acc < 0 ? 'var(--vermelho)' : 'inherit' }}><b>{brl(acc)}</b></td></tr> })}</tbody></table></Pagina>
 }
 
+
+const IMP = { impressa: ['✔ Impressa', 'var(--verde)'], falhou: ['✖ Falhou', 'var(--vermelho)'], 'sem-confirmacao': ['⚠ Sem confirmação', '#e0a100'], nunca: ['Não impressa', '#777'] }
+function SituacaoImpressao({ n }) {
+  const [rot, cor] = IMP[situacaoImpressao(n)]
+  return <span style={{ color: cor, fontSize: 13 }}>{rot}{n.tentativasImpressao ? <small style={{ display: 'block' }}>{n.tentativasImpressao} tentativa(s)</small> : null}</span>
+}
+
 export function Nfce() {
-  const [notas, cn] = useLista(R + '/nfce'); const [vendas] = useLista('/api/vendas/vendas?limit=30'); const [produtos] = useProdutos(); const [msg, setMsg] = useState('')
+  const [notas, cn] = useLista(R + '/nfce'); const [nfes] = useLista(R + '/nfe'); const [vendas] = useLista('/api/vendas/vendas?limit=30'); const [produtos] = useProdutos(); const [msg, setMsg] = useState('')
   const [st, setSt] = useState(null); const [reimp, setReimp] = useState(null); const [corrigindo, setCorrigindo] = useState(null); const [cpfNovo, setCpfNovo] = useState('')
   const [clientes] = useLista(R + '/clientes'); const [fornecedores] = useLista(R + '/fornecedores')
   const pProd = listarProblemas(produtos, p => `${p.plu ?? ''} ${p.nome}`, problemasProduto), pCli = listarProblemas(clientes, c => c.nome, problemasCliente), pForn = listarProblemas(fornecedores, f => f.nome, problemasFornecedor)
   const pEmit = st?.problemasEmitente || []; const tudoOk = st && !pEmit.length && !pProd.length && !pCli.length && !pForn.length
   useEffect(() => { api(R + '/nfce/status').then(setSt).catch(() => {}) }, [])
-  const emitidas = new Set(notas.map(n => n.vendaId)); const act = (p, o) => post(p, o).then(cn).catch(e => setMsg(String(e)))
+  const emitidas = new Set([...notas, ...nfes.filter(n => ['AUTORIZADA', 'PENDENTE', 'CONTINGENCIA'].includes(n.status))].map(n => n.vendaId));   // venda com NF-e (empresa) não precisa de NFC-e const act = (p, o) => post(p, o).then(cn).catch(e => setMsg(String(e)))
   const cor = { AUTORIZADA: 'var(--verde)', CONTINGENCIA: '#e0a100', CANCELADA: 'var(--vermelho)', REJEITADA: 'var(--vermelho)', DENEGADA: 'var(--vermelho)' }
   const emitir = async v => { try { const venda = await api(`/api/vendas/vendas/${v.id}`); await emitirNfce(montarEmissao(venda, produtos, v.cpf || '', '', null)); cn() } catch (e) { setMsg(String(e)) } }
   const corrigir = async () => { try { await corrigirCpfNfce(corrigindo.id, cpfNovo); setCorrigindo(null); cn() } catch (e) { setMsg(String(e)) } }
   const cancelar = n => { const j = window.prompt('Justificativa do cancelamento (mínimo 15 caracteres):'); if (j) act(`${R}/nfce/${n.id}/cancelar`, { justificativa: j }) }
-  const imprimir = async n => { try { const venda = await api(`/api/vendas/vendas/${n.vendaId}`); setReimp({ nota: n, venda }); setTimeout(() => window.print(), 80) } catch (e) { setMsg(String(e)) } }
+  const imprimir = n => setReimp(n)
   return <Pagina titulo="🧮 NFC-e / Nota Fiscal Gaúcha"><Aviso m={msg} />
     {st && !st.real && <div className="msg" style={{ margin: '0 0 12px' }}>⚠ Emissão <b>simulada</b> (FISCAL_PROVIDER=simulador): chave e protocolo fictícios, sem valor fiscal. Para emitir de verdade configure FISCAL_PROVIDER=sefaz, o certificado A1 e o CSC no .env (ver README).</div>}
     {st?.real && <div className="msg" style={{ margin: '0 0 12px' }}>SEFAZ-RS · ambiente <b>{st.ambiente}</b>{st.pendencias?.length > 0 && <> · ⚠ faltam: {st.pendencias.join(', ')}</>}</div>}
@@ -280,12 +288,13 @@ export function Nfce() {
       <tbody>{vendas.filter(v => v.status === 'PAGA' && !emitidas.has(v.id)).map(v => <tr key={v.id}><td>#{v.id}</td><td>{new Date(v.data).toLocaleString('pt-BR')}</td><td>{brl(v.total)}</td><td>{v.cpf ? mascaraCpf(v.cpf) : '—'}</td>
         <td><button className="btn" onClick={() => emitir(v)}>Emitir NFC-e</button></td></tr>)}</tbody></table>
     <h3>Notas</h3>
-    <table className="tab"><thead><tr><th>Nº</th><th>Venda</th><th>Chave</th><th>Valor</th><th>CPF (NFG)</th><th>Cartão (TEF)</th><th>Status / retorno SEFAZ</th><th></th></tr></thead>
+    <table className="tab"><thead><tr><th>Nº</th><th>Venda</th><th>Chave</th><th>Valor</th><th>CPF (NFG)</th><th>Cartão (TEF)</th><th>Status / retorno SEFAZ</th><th>DANFE</th><th></th></tr></thead>
       <tbody>{notas.map(n => <tr key={n.id}><td>{n.numero}</td><td>#{n.vendaId}</td><td style={{ fontSize: 11 }}>{n.chave}</td><td>{brl(n.valor)}</td><td>{n.cpf ? mascaraCpf(n.cpf) : '—'}</td><td style={{ fontSize: 12 }}>{cartoesTexto(n.cartoes)}</td>
         <td><span className="classe" style={{ background: cor[n.status] }}>{n.status}</span>{n.cStat ? <small style={{ display: 'block' }}>{n.cStat} - {n.xMotivo}</small> : null}</td>
+        <td>{(n.status === 'AUTORIZADA' || n.status === 'CONTINGENCIA') ? <SituacaoImpressao n={n} /> : '—'}</td>
         <td>{n.status === 'REJEITADA' && situacaoNota(n) === 'corrigir-cpf' && <button className="btn" onClick={() => { setCorrigindo(n); setCpfNovo(mascaraCpf(n.cpf || '')) }}>Corrigir CPF</button>}
           {n.status === 'CONTINGENCIA' && <button className="btn sec" onClick={() => act(`${R}/nfce/${n.id}/transmitir`)}>Transmitir</button>}
-          {(n.status === 'AUTORIZADA' || n.status === 'CONTINGENCIA') && <button className="btn sec" onClick={() => imprimir(n)}>DANFE</button>}
+          {(n.status === 'AUTORIZADA' || n.status === 'CONTINGENCIA') && <button className="btn sec" onClick={() => imprimir(n)}>{n.tentativasImpressao ? 'Reimprimir / histórico' : 'DANFE'}</button>}
           {n.status === 'AUTORIZADA' && <button className="btn sec" onClick={() => cancelar(n)}>Cancelar</button>}
           {st?.real && <a className="btn sec" href={`${R}/nfce/${n.id}/xml`}>XML</a>}</td></tr>)}</tbody></table>
     {corrigindo && <div className="modal" role="dialog" aria-label="Corrigir CPF"><div className="nfce-box"><h2>Corrigir CPF — NFC-e nº {corrigindo.numero}</h2>
@@ -293,7 +302,7 @@ export function Nfce() {
       <input autoFocus aria-label="CPF corrigido" inputMode="numeric" placeholder="000.000.000-00 (vazio = sem CPF)" value={cpfNovo} onChange={e => setCpfNovo(mascaraCpf(e.target.value))} className={statusCpf(cpfNovo) === 'invalido' ? 'cpf-invalido' : ''} />
       <div className="botoes"><button className="btn" disabled={['incompleto', 'invalido'].includes(statusCpf(cpfNovo))} onClick={corrigir}>{cpfNovo ? 'Reenviar com este CPF' : 'Emitir sem CPF'}</button>
         <button className="btn sec" onClick={() => setCorrigindo(null)}>Fechar</button></div></div></div>}
-    {reimp && <Danfe nota={reimp.nota} itens={reimp.venda.itens} pagamentos={reimp.venda.pagamentos} produtos={produtos} />}</Pagina>
+    {reimp && <ImprimirDanfe notaId={reimp.id} origem="REIMPRESSAO" produtos={produtos} onFechar={() => setReimp(null)} onMudou={cn} />}</Pagina>
 }
 
 /* ---------- Relatórios / Marketing ---------- */
@@ -484,10 +493,12 @@ export function Perifericos() {
           <label>Código do terminal<input value={f.tefTerminal} onChange={s('tefTerminal')} /></label></div>
         <div><button className="btn sec" onClick={testarTef}>Testar agente TEF</button>{' '}
           {tt?.carregando && <span>consultando…</span>}
+          {tt?.ok && tt.implementado === false && <span style={{ color: 'var(--vermelho)' }}>⚠ {tt.provedor}: integração com a maquininha ainda não implementada. </span>}
           {tt?.ok && <span>✔ provedor <b>{tt.provedor}</b> · pinpad {tt.pinpad ? 'conectado' : 'desconectado'}{tt.provedor === 'simulador' ? ' — SIMULADOR (não cobra de verdade)' : ''}</span>}
           {tt && tt.ok === false && <span style={{ color: 'var(--vermelho)' }}>✖ {tt.erro}</span>}</div>
         <small>O navegador não fala com o pinpad: o <b>agente TEF</b> (pasta tef-agent) roda neste computador e faz a ponte. Em página HTTPS, o Chrome só aceita chamar 127.0.0.1 (o agente já envia o cabeçalho de rede privada); use o token para que outras páginas não acionem a maquininha.</small></>}
       <label>Impressora<input value={f.impressora} onChange={s('impressora')} /></label>
+      <TesteProducao f={f} />
       <label>Gaveta de dinheiro<select value={f.gaveta} onChange={s('gaveta')}><option value="sim">Abrir ao receber dinheiro</option><option value="nao">Não usa</option></select></label>
       <label>Latitude da loja (previsão do tempo)<input value={f.lat} onChange={s('lat')} placeholder="-30.0346" /></label>
       <label>Longitude da loja<input value={f.lon} onChange={s('lon')} placeholder="-51.2177" /></label>

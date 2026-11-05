@@ -2,6 +2,7 @@ import React from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import PDV from '../src/PDV.jsx'
 import { Nfce } from '../src/paginas2.jsx'
+import { describe } from "vitest"
 import { cpfValido, mascaraCpf, statusCpf } from '../src/cpf.js'
 import { montarEmissao, situacaoNota } from '../src/nfce.js'
 
@@ -55,7 +56,7 @@ async function vender(cpf) {
 
 test('CPF incompleto ou inválido bloqueia o pagamento; vazio deixa vender anônimo', async () => {
   await vender('123')
-  expect(screen.getByText(/CPF inválido: corrija ou apague/)).toBeTruthy()
+  expect(screen.getByText(/inválido: corrija ou apague/)).toBeTruthy()
   expect(screen.queryByText(/Voltar/)).toBeNull()
   fireEvent.change(screen.getByLabelText('CPF na nota'), { target: { value: '' } })
   fireEvent.click(screen.getByText(/Pagar \(F2\)/))
@@ -98,4 +99,53 @@ test('contingência: aviso e DANFE com QR Code', async () => {
   await vender('')
   fireEvent.click(await screen.findByText(/Dinheiro/)); fireEvent.keyDown(window, { key: 'Enter' })
   expect((await screen.findByRole('dialog', { name: 'Resultado da NFC-e' })).textContent).toMatch(/contingência/)
+})
+
+// ---------------- venda para empresa (CNPJ) → NF-e ----------------
+import { statusDoc } from '../src/fiscal.js'
+const CNPJ = '11222333000181'
+test('statusDoc: CPF, CNPJ, incompleto e inválido', () => {
+  expect(statusDoc('')).toBe(''); expect(statusDoc(CPF)).toBe('ok'); expect(statusDoc(CNPJ)).toBe('ok')
+  expect(statusDoc('1122233300')).toBe('incompleto'); expect(statusDoc('112223330001')).toBe('incompleto'); expect(statusDoc('11222333000180')).toBe('invalido')
+})
+
+describe('PDV: venda para empresa', () => {
+  let nfe, conferencia
+  beforeEach(() => {
+    nfe = { id: 3, numero: 7, status: 'AUTORIZADA', cStat: 100, xMotivo: 'Autorizado o uso da NF-e', cpf: CNPJ, chave: '4'.repeat(44) }; conferencia = { ok: true, problemas: [] }
+    const base = globalThis.fetch
+    globalThis.fetch = vi.fn(async (url, o) => {
+      if (url.includes('/clientes/cpf/')) return { ok: true, json: async () => ({ nome: 'Mercado Bom Preço Ltda', cpf: CNPJ, ie: '0123456789' }), text: async () => '' }
+      if (url.endsWith('/nfe/conferir')) { chamadas.push({ url, o }); return { ok: true, json: async () => conferencia, text: async () => '' } }
+      if (url.endsWith('/nfe/emitir')) { chamadas.push({ url, o }); return { ok: true, json: async () => nfe, text: async () => '' } }
+      return base(url, o)
+    })
+  })
+  test('CNPJ válido mostra o aviso da empresa, emite NF-e (não NFC-e) e não gera cashback', async () => {
+    await vender('11.222.333/0001-81')
+    expect(screen.getByLabelText('CPF na nota').value).toBe('11.222.333/0001-81')
+    expect((await screen.findByRole('status', { name: 'Venda para empresa' })).textContent).toMatch(/NF-e/)
+    expect(await screen.findByText(/Mercado Bom Preço Ltda/)).toBeTruthy()
+    fireEvent.click(await screen.findByText(/Dinheiro/)); fireEvent.keyDown(window, { key: 'Enter' })
+    const aviso = await screen.findByRole('dialog', { name: 'Resultado da NF-e' })
+    expect(aviso.textContent).toMatch(/NF-e autorizada/)
+    const venda = JSON.parse(chamadas.find(c => c.url.endsWith('/vendas') && c.o?.method === 'POST').o.body); expect(venda.cpf).toBe(CNPJ)
+    const corpo = JSON.parse(chamadas.find(c => c.url.endsWith('/nfe/emitir')).o.body); expect(corpo.clienteDoc).toBe(CNPJ); expect(corpo.itens[0].ncm).toBe('07031019')
+    expect(chamadas.some(c => c.url.endsWith('/nfce/emitir'))).toBe(false)
+    expect(chamadas.some(c => c.url.includes('/compra'))).toBe(false)
+  })
+  test('cadastro da empresa incompleto: não emite, lista o que falta e permite tentar de novo', async () => {
+    conferencia = { ok: false, problemas: ['Destinatário: endereço incompleto'] }
+    await vender(CNPJ)
+    fireEvent.click(await screen.findByText(/Dinheiro/)); fireEvent.keyDown(window, { key: 'Enter' })
+    const aviso = await screen.findByRole('dialog', { name: 'Resultado da NF-e' })
+    expect(aviso.textContent).toMatch(/endereço incompleto/); expect(chamadas.some(c => c.url.endsWith('/nfe/emitir'))).toBe(false)
+    conferencia = { ok: true, problemas: [] }
+    fireEvent.click(screen.getByText('Tentar de novo'))
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'Resultado da NF-e' }).textContent).toMatch(/NF-e autorizada/))
+  })
+  test('CNPJ inválido bloqueia o pagamento', async () => {
+    await vender('11222333000180')
+    expect(screen.getByText(/inválido: corrija ou apague/)).toBeTruthy()
+  })
 })

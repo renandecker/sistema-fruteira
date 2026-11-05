@@ -10,7 +10,10 @@ import { pixAtivo, pixPendencias } from './pix.js'
 import { SangriaModal } from './Caixa.jsx'
 import { cartoesDoMeio, meioDeBeneficio, nomeCartao } from './cartoes.js'
 import { tefAtivo, desfazerTef, confirmarTef, imprimirComprovantes, reconciliar, cartoesNfce } from './tef.js'
-import { mascaraCpf, statusCpf, somenteDigitos } from './cpf.js'
+import { somenteDigitos } from './cpf.js'
+import { mascaraDoc, statusDoc } from './fiscal.js'
+import { montarNfe, conferirNfe, emitirNfe } from './nfe.js'
+import NfeAviso from './NfeAviso.jsx'
 import { montarEmissao, emitirNfce, corrigirCpfNfce } from './nfce.js'
 import { NfceAviso } from './Danfe.jsx'
 import { decodificarEtiqueta } from './etiqueta.js'
@@ -31,7 +34,15 @@ export default function PDV() {
   const [itens, setItens] = useState([]); const [codigo, setCodigo] = useState(''); const [cpf, setCpf] = useState(''); const [pagando, setPagando] = useState(false)
   const [caixa, setCaixa] = useState(null); const [sangria, setSangria] = useState(false)
   const [nfceAviso, setNfceAviso] = useState(null)   // { nota, venda } — retorno da NFC-e logo após a venda
-  const stCpf = statusCpf(cpf)
+  const stCpf = statusDoc(cpf)                                        // CPF (11) ou CNPJ (14): CNPJ = venda para empresa → NF-e
+  const docDigitos = somenteDigitos(cpf); const ehEmpresa = stCpf === 'ok' && docDigitos.length === 14
+  const [empresa, setEmpresa] = useState(undefined); const [consumidorFinal, setConsumidorFinal] = useState(false); const [nfeAviso, setNfeAviso] = useState(null)
+  useEffect(() => {        // CNPJ válido: procura a empresa no cadastro de clientes (a NF-e precisa de razão social, endereço e IE)
+    if (!ehEmpresa) { setEmpresa(undefined); return }
+    let vivo = true; setEmpresa(undefined)
+    fetch(`/api/retaguarda/clientes/cpf/${docDigitos}`).then(r => r.ok ? r.json() : null).then(c => vivo && setEmpresa(c || null)).catch(() => vivo && setEmpresa(null))
+    return () => { vivo = false }
+  }, [ehEmpresa, docDigitos])
   const [sitCad, setSitCad] = useState(null); const [painelCad, setPainelCad] = useState(false)   // situação do cliente no caderno (fiado)
   const [saude, setSaude] = useState(null)   // última verificação horária do Pix/TEF (só avisa se houver problema)
   useEffect(() => {
@@ -238,12 +249,27 @@ export default function PDV() {
       else setNfceAviso({ nota, venda: v })
     } catch (e) { setMsg('Venda concluída, mas a NFC-e não foi emitida: ' + String(e) + ' — emita em NFC-e › Vendas sem nota.') }
   }
+  /** Venda para empresa (CNPJ): NF-e modelo 55 no lugar da NFC-e. Confere os dados antes (cadastro da empresa) e nunca trava o caixa. */
+  const emitirNotaEmpresa = async (v, doc, emp, cf) => {
+    if (!v?.id) return setNfeAviso({ venda: v, doc, empresa: emp, erro: 'A venda ficou salva offline: emita a NF-e depois em NF-e — venda a empresa.' })
+    const tentar = async () => {
+      try {
+        const corpo = montarNfe(v, produtos, { empresaDoc: doc, consumidorFinal: cf })
+        const c = await conferirNfe(corpo)
+        if (!c.ok) return setNfeAviso({ venda: v, doc, empresa: emp, problemas: c.problemas })
+        setNfeAviso({ venda: v, doc, empresa: emp, nota: await emitirNfe(corpo) })
+      } catch (e) { setNfeAviso({ venda: v, doc, empresa: emp, erro: String(e?.message || e) }) }
+    }
+    nfeTentar.current = tentar; await tentar()
+  }
+  const nfeTentar = useRef(null)
   const corrigirCpf = async (cpfNovo) => {
     const nota = await corrigirCpfNfce(nfceAviso.nota.id, cpfNovo)
     setNfceAviso(a => ({ ...a, nota }))
   }
   const pagar = () => {   // CPF digitado precisa estar completo e válido (dígitos verificadores); vazio = venda sem CPF
-    if (stCpf === 'incompleto' || stCpf === 'invalido') { setMsg('CPF inválido: corrija ou apague o campo para vender sem CPF.'); return }
+    if (stCpf === 'incompleto' || stCpf === 'invalido') { setMsg('CPF/CNPJ inválido: corrija ou apague o campo para vender sem documento.'); return }
+    if (ehEmpresa && empresa === null) setMsg('Empresa não cadastrada: a venda pode seguir, mas a NF-e só sai depois de cadastrar o cliente (Cadastros → Clientes).')
     setPagando(true)
   }
   async function finalizar(pagamentos) {
@@ -251,7 +277,10 @@ export default function PDV() {
     const venda = { cpf: somenteDigitos(cpf) || null, atacado: false, pagamentos: pagamentos.map(({ meio, valor, tefId, pixId, operadora }) => ({ meio, valor, ...(operadora ? { operadora } : {}), ...(tefId ? { tefId } : {}), ...(pixId ? { pixId } : {}) })),
       itens: itens.map(i => ({ produtoId: i.produtoId, quantidade: i.quantidade, pesoBalanca: i.pesoBalanca })) }
     try {
-      const v = await enviarVenda(venda); setMsg('Venda concluída ✔'); posVenda(v, venda.cpf); emitirNota(v, venda.cpf); carregar(); carregarCaixa()    // recarrega ranking e promoções
+      const v = await enviarVenda(venda); setMsg('Venda concluída ✔')
+      if (ehEmpresa) emitirNotaEmpresa(v, venda.cpf, empresa || null, consumidorFinal)          // empresa: NF-e, sem NFC-e nem cashback
+      else { posVenda(v, venda.cpf); emitirNota(v, venda.cpf) }
+      carregar(); carregarCaixa()    // recarrega ranking e promoções
       if (cartoes.length) setTimeout(() => concluirTef(cartoes), 0)
     } catch (e) {
       if (e instanceof TypeError && venda.pagamentos.some(p => p.meio === 'CADERNO')) return setMsg('Sem rede: venda no caderno precisa de conexão (o limite do cliente é conferido no servidor). Tente de novo ou escolha outra forma de pagamento.')
@@ -262,7 +291,7 @@ export default function PDV() {
         return setMsg(String(e) + (pagamentos.some(p => p.pixId) ? ' — o Pix já foi recebido e continua reservado: tente finalizar de novo (ou devolva em Transações PIX).' : '') + (cartoes.length ? (falhas ? ' — não foi possível desfazer algum cartão: veja Transações TEF.' : ' — os pagamentos em cartão foram desfeitos.') : ''))
       }
     }
-    setItens([]); setPagando(false); setCpf(''); setSitCad(null); focarCampo()
+    setItens([]); setPagando(false); setCpf(''); setConsumidorFinal(false); setSitCad(null); focarCampo()
   }
 
   return (
@@ -309,11 +338,14 @@ export default function PDV() {
       </section>
       <aside className="side">
         <div className="campo-x">
-          <input placeholder="CPF na nota (opcional)" aria-label="CPF na nota" inputMode="numeric" value={cpf} onChange={e => setCpf(mascaraCpf(e.target.value))}
-            className={stCpf === 'invalido' ? 'cpf-invalido' : stCpf === 'ok' ? 'cpf-ok' : ''} title="Nota Fiscal Gaúcha: informe o CPF do consumidor (opcional)" />
+          <input placeholder="CPF ou CNPJ na nota (opcional)" aria-label="CPF na nota" inputMode="numeric" value={cpf} onChange={e => setCpf(mascaraDoc(e.target.value))}
+            className={stCpf === 'invalido' ? 'cpf-invalido' : stCpf === 'ok' ? 'cpf-ok' : ''} title="CPF do consumidor (Nota Fiscal Gaúcha) ou CNPJ da empresa (NF-e) — opcional" />
           {itens.length > 0 && <button className="x-limpar" title="Limpar todos os itens da venda" onClick={limparTudo}>✕</button>}
         </div>
-        {stCpf === 'invalido' && <small className="erro" role="alert">CPF inválido — confira os números</small>}
+        {stCpf === 'invalido' && <small className="erro" role="alert">{docDigitos.length === 14 ? 'CNPJ' : 'CPF'} inválido — confira os números</small>}
+        {ehEmpresa && <div className="msg" role="status" aria-label="Venda para empresa" style={{ margin: '4px 0' }}>🏢 <b>Venda para empresa: sai NF-e</b> (não NFC-e).{' '}
+          {empresa === undefined ? 'Procurando o cadastro…' : empresa ? <>{empresa.nome}{empresa.ie ? ` · IE ${empresa.ie}` : ''}</> : <span className="erro">CNPJ sem cadastro em Clientes: a NF-e ficará pendente.</span>}
+          <label style={{ display: 'block' }}><input type="checkbox" checked={consumidorFinal} onChange={e => setConsumidorFinal(e.target.checked)} /> Empresa usa a mercadoria (não é para revenda)</label></div>}
         {stCpf === 'incompleto' && <small className="eco">CPF incompleto</small>}
         {selosSaude(saude).length > 0 && <div className="selos-saude" role="alert" data-testid="alerta-saude">{selosSaude(saude).map(x => <span key={x.nome} className={`selo-saude ${x.fora ? 'fora' : 'aviso'}`} title={`${x.detalhe} (verificado às ${horaCurta(saude.ultima.quando)})`}><span aria-hidden="true">{x.icone}</span> {x.texto}</span>)}<small>avise o gerente</small></div>}
         {sitCad && nivelAlerta(sitCad) !== 'ok' && <div className={`alerta-fiado ${nivelAlerta(sitCad) === 'atraso' ? 'atraso' : ''}`} role="alert"><span>📒 {textoAlerta(sitCad, brl)}</span><button className="btn sec" onClick={() => setPainelCad(true)}>Ver caderno</button></div>}
@@ -333,6 +365,7 @@ export default function PDV() {
       {sangria && <SangriaModal onFechar={() => { setSangria(false); focarCampo() }} onFeita={() => { setSangria(false); setMsg('Sangria registrada ✔'); carregarCaixa(); focarCampo() }} />}
       {painelCad && sitCad && <CadernoPainel sit={sitCad} onFechar={() => setPainelCad(false)} onAtualizar={recarregarCad} />}
       {pagando && <Pagamento sitCad={sitCad} total={total} desconto={descontoTotal} onOk={finalizar} problemasNcm={problemasNcm} produtoIds={[...new Set(itens.map(i => i.produtoId))]} onCancel={() => { setPagando(false); focarCampo() }} />}
+      {nfeAviso && <NfeAviso aviso={nfeAviso} onTentar={() => nfeTentar.current?.()} onFechar={() => { setNfeAviso(null); focarCampo() }} />}
       {nfceAviso && <NfceAviso nota={nfceAviso.nota} itens={nfceAviso.venda.itens} pagamentos={nfceAviso.venda.pagamentos} produtos={produtos} onCorrigir={corrigirCpf} onFechar={() => { setNfceAviso(null); focarCampo() }} />}
     </div>)
 }

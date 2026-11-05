@@ -429,3 +429,21 @@ Cada ferramenta só carrega (arquivo separado) quando a chave está no `.env`; s
 - Banco local no PDV (SQLite) para o modo híbrido; a fila offline atual fica no navegador. Sincronização nuvem+local completa.
 - Precificação dinâmica (preço por fim de dia/validade) e delivery com pedidos.
 - Mensageria (Kafka/RabbitMQ) e API Gateway entre os serviços.
+
+## Maquininhas por caixa e teste de produção
+- Cada caixa escolhe o provedor no `.env` do **seu** computador (`TEF_PROVIDER=simulador|stone|cielo|bb`), então um caixa pode usar Stone e outro Cielo ou Banco do Brasil. Variáveis: `STONE_CODIGO`, `STONE_TERMINAL_SERIAL`, `CIELO_EC`, `CIELO_TERMINAL`, `BB_EC`, `BB_TERMINAL` (BB cai em `CIELO_*` se vazias).
+- **Estado real:** Stone, Cielo e Banco do Brasil só selecionam o provedor e conferem as variáveis; **não falam com a maquininha** (exige contrato, SDK da adquirente e homologação). Só o simulador funciona de ponta a ponta.
+- Configurações → Balança e periféricos → **Teste de produção deste caixa**: testa o agente TEF (provedor, variáveis, pinpad), o Pix no servidor e imprime uma página de teste (a confirmação de que o papel saiu é do operador; não há integração com impressora fiscal ECF).
+
+## DANFE guardado e tentativas de impressão (NFC-e)
+- Depois do retorno da SEFAZ a nota fica gravada no retaguarda (XML, chave, protocolo, QR Code, CPF e os itens/pagamentos enviados). O DANFE é montado a partir dela (`GET /nfce/{id}/danfe`), então dá para reimprimir mesmo se a venda não estiver mais no vendas-service.
+- Cada impressão vira uma tentativa (`POST /nfce/{id}/impressoes`): **ENVIADA** ao mandar imprimir; o operador responde "saiu?" e ela passa a **CONFIRMADA** ou **FALHA** (com o motivo: sem papel, impressora desligada, papel atolado…). O navegador não sabe se o papel saiu, por isso a confirmação é da pessoa; sem resposta a tentativa fica "sem confirmação".
+- Guardado por tentativa: número, data, origem (na venda ou reimpressão), usuário, caixa, resultado e motivo. Reimpressões e falhas também entram na Auditoria (ação "Impressão do DANFE").
+- Tela NFC-e: coluna **DANFE** (✔ impressa · ⚠ sem confirmação · ✖ falhou · não impressa) e botão **Reimprimir / histórico**. Sem acesso ao servidor, o caixa imprime com os dados da própria tela e avisa que a tentativa não ficou registrada.
+- Migration `V20__retaguarda_nota_impressao.sql` (tabela `NotaImpressao` e colunas em `Nota`).
+
+## Venda para empresa no PDV (CNPJ → NF-e)
+- O campo "CPF ou CNPJ na nota" aceita os dois (máscara automática). Com **CNPJ válido** o caixa mostra "Venda para empresa: sai NF-e", busca a empresa em Cadastros → Clientes (nome e IE) e oferece a opção "empresa usa a mercadoria (não é para revenda)".
+- Depois de gravar a venda, o PDV **confere os dados** (`/nfe/conferir`) e emite **NF-e modelo 55** (`/nfe/emitir`) em vez de NFC-e; não gera cashback. O vendas-service passou a aceitar CNPJ no documento da venda.
+- Se o cadastro da empresa estiver incompleto (razão social, endereço, IE) ou a SEFAZ não responder, a venda continua concluída e um aviso lista o que corrigir, com "Tentar de novo" e "Resolver depois" (NF-e — venda a empresa, onde também dá para transmitir, reemitir e imprimir).
+- Na tela NFC-e, vendas que já têm NF-e não aparecem mais em "Vendas sem nota".

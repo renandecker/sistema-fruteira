@@ -48,6 +48,8 @@ public class LauncherTeste {
         confere(invalido, "certificado: nome inválido recusado");
     }
     static void tefCaixa() {
+        var mm = Main.ambienteTef(mapa("TEF_PROVIDER", "stone", "STONE_CODIGO", "123", "STONE_TERMINAL_SERIAL", "S1", "CIELO_EC", "", "BB_EC", "9"), Path.of("/x"));
+        confere("stone".equals(mm.get("TEF_PROVIDER")) && "123".equals(mm.get("STONE_CODIGO")) && "S1".equals(mm.get("STONE_TERMINAL_SERIAL")) && "9".equals(mm.get("BB_EC")) && !mm.containsKey("CIELO_EC"), "agente TEF recebe STONE_*/CIELO_*/BB_* do .env (só os preenchidos)");
         var m = Main.ambienteTef(mapa("FRONT_URL", "https://192.168.0.10:5173", "TEF_TOKEN", "tok", "TEF_PROVIDER", "clisitef"), Path.of("/x"));
         confere("https://192.168.0.10:5173".equals(m.get("TEF_ORIGENS")) && "tok".equals(m.get("TEF_TOKEN")) && "clisitef".equals(m.get("TEF_PROVIDER")), "agente do caixa: origem = FRONT_URL, token e provedor do .env");
         confere("127.0.0.1".equals(m.get("QUARKUS_HTTP_HOST")) && "8090".equals(m.get("QUARKUS_HTTP_PORT")), "agente do caixa: escuta só em 127.0.0.1:8090");

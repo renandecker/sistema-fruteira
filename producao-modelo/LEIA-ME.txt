@@ -44,3 +44,8 @@ CAIXA COM MAQUININHA PRÓPRIA: o agente TEF roda no computador do caixa. Copie p
 
 Conteúdo: fruteira-launcher.jar · servicos/ (jars Quarkus) · web/ (front) · .env.example · logs/ · backups/ · run/
 Problemas? Veja logs/<serviço>.log. "PostgreSQL recusou a senha" = ajuste PG_ADMIN_PASS. "porta em uso" = rode parar.
+
+MAQUININHA POR CAIXA: em cada computador de caixa o .env define TEF_PROVIDER (simulador | stone | cielo | bb) e as variáveis do provedor:
+  stone: STONE_CODIGO, STONE_TERMINAL_SERIAL · cielo: CIELO_EC, CIELO_TERMINAL · bb (Banco do Brasil): BB_EC, BB_TERMINAL (vazios = CIELO_*).
+  ATENÇÃO: Stone, Cielo e Banco do Brasil ainda só validam essas variáveis; a comunicação com a maquininha depende de contrato, SDK e homologação.
+  Para conferir: Configurações > Balança e periféricos > "Teste de produção deste caixa" (TEF, Pix e impressora).

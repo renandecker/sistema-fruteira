@@ -14,8 +14,11 @@ public class TefResource {
 
     @GET @Path("/status")
     public Map<String, Object> status() {
-        TefProvider p = agente.provider();
-        return Map.of("provedor", p.nome(), "pinpad", p.pinpadConectado(), "pendencias", agente.pendencias().size());
+        TefProvider p;
+        try { p = agente.provider(); }
+        catch (IllegalStateException e) { throw Http.erro(422, e.getMessage() + ". Provedores disponíveis: " + String.join(", ", agente.nomes())); }
+        return Map.of("provedor", p.nome(), "pinpad", p.pinpadConectado(), "pendencias", agente.pendencias().size(),
+                      "implementado", p.implementado(), "problemas", p.problemas(), "descricao", p.descricao(), "disponiveis", agente.nomes());
     }
 
     @POST @Path("/transacoes")

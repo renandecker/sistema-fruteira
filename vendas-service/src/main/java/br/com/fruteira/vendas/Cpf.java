@@ -27,6 +27,28 @@ public final class Cpf {
         return c.length() != 11 ? c : c.substring(0, 3) + "." + c.substring(3, 6) + "." + c.substring(6, 9) + "-" + c.substring(9);
     }
 
+    /** true se tem 14 dígitos, não são todos iguais e os dois dígitos verificadores do CNPJ conferem. */
+    public static boolean cnpjValido(String s) {
+        String c = somenteDigitos(s);
+        if (c.length() != 14 || c.chars().distinct().count() == 1) return false;
+        return dvCnpj(c, 12) == c.charAt(12) - '0' && dvCnpj(c, 13) == c.charAt(13) - '0';
+    }
+    private static int dvCnpj(String c, int n) {
+        int soma = 0, peso = n - 7;
+        for (int i = 0; i < n; i++) { soma += (c.charAt(i) - '0') * peso; peso = peso == 2 ? 9 : peso - 1; }
+        int r = soma % 11;
+        return r < 2 ? 0 : 11 - r;
+    }
+
+    /** CPF (11) ou CNPJ (14, venda para empresa) válido; vazio → null. Inválido → IllegalArgumentException. */
+    public static String normalizarDocumentoOuNulo(String s) {
+        String c = somenteDigitos(s);
+        if (c.isEmpty()) return null;
+        if (c.length() == 14) { if (!cnpjValido(c)) throw new IllegalArgumentException("CNPJ inválido"); return c; }
+        if (!valido(c)) throw new IllegalArgumentException("CPF inválido");
+        return c;
+    }
+
     /**
      * Normaliza o CPF informado no caixa: vazio → null (venda anônima); inválido → IllegalArgumentException("CPF inválido").
      */

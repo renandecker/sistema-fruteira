@@ -43,10 +43,19 @@ public class Entities {
         public String nome;                              // nome do consumidor (opcional; vai em <dest><xNome>)
         public Integer cStat, tpEmis; @Column(length = 500) public String xMotivo; public String cNF, dhAutorizacao;
         public String provider;                          // SIMULADOR | SEFAZ
+        public Integer tentativasImpressao; public Boolean impressa; public String ultimaImpressao;   // tentativas de imprimir o DANFE · true = alguém confirmou que saiu o papel · ENVIADA|CONFIRMADA|FALHA da última
         public Boolean erroCpf;                          // rejeição por CPF/destinatário: o caixa pode corrigir ou emitir sem CPF
         @Column(length = 600) public String qrCode; public String urlChave;
         @JsonIgnore @Column(length = 200000) public String xml;          // XML assinado (ou nfeProc, quando autorizada)
         @JsonIgnore @Column(length = 20000) public String payload;       // itens/pagamentos da venda (para reenviar após corrigir o CPF)
+    }
+    /** Cada tentativa de imprimir o DANFE: ENVIADA (mandada ao navegador/impressora) → CONFIRMADA (operador viu sair) ou FALHA. */
+    @Entity(name = "NotaImpressao") public static class NotaImpressao extends PanacheEntity {
+        public Long notaId; public Integer tentativa; public LocalDateTime data = LocalDateTime.now();
+        public String usuario; public String terminal;
+        public String origem;                            // EMISSAO (logo após a venda) | REIMPRESSAO
+        public String resultado;                         // ENVIADA | CONFIRMADA | FALHA
+        @Column(length = 500) public String erro;
     }
     @Entity(name = "Auditoria") public static class Auditoria extends PanacheEntity {
         public LocalDateTime data = LocalDateTime.now();

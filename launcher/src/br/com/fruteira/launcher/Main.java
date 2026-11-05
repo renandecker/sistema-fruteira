@@ -49,6 +49,7 @@ public final class Main {
     static Map<String, String> ambienteTef(Map<String, String> e, Path home) {
         Map<String, String> m = new LinkedHashMap<>();
         m.put("TEF_PROVIDER", e.getOrDefault("TEF_PROVIDER", "simulador")); m.put("TEF_TOKEN", e.getOrDefault("TEF_TOKEN", ""));
+        for (String k : List.of("STONE_CODIGO", "STONE_TERMINAL_SERIAL", "CIELO_EC", "CIELO_TERMINAL", "BB_EC", "BB_TERMINAL", "TEF_SIM_LATENCIA")) if (!e.getOrDefault(k, "").isBlank()) m.put(k, e.get(k));
         m.put("TEF_ORIGENS", e.getOrDefault("TEF_ORIGENS", "").isBlank() ? e.getOrDefault("FRONT_URL", "http://localhost:5173") : e.get("TEF_ORIGENS"));
         m.put("TEF_DADOS", e.getOrDefault("TEF_DADOS", "").isBlank() ? home.resolve("data/tef-agente.json").toString() : e.get("TEF_DADOS"));
         m.put("QUARKUS_HTTP_PORT", e.getOrDefault("TEF_PORTA", "8090")); m.put("QUARKUS_HTTP_HOST", "127.0.0.1"); m.put("QUARKUS_OTEL_SDK_DISABLED", "true");

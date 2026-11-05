@@ -35,3 +35,15 @@ export function situacaoNota(n) {
   return 'rejeitada'
 }
 export const emitente = () => { const c = cfg(); return { nome: c.empresaNome || 'Fruteira Conventos', cnpj: c.empresaCnpj || '' } }
+
+// ---- DANFE guardado no servidor + tentativas de impressão (retaguarda: nota guardada, histórico por nota)
+export const danfeNfce = id => fetch(`/api/retaguarda/nfce/${id}/danfe`, { headers: H }).then(json)
+export const registrarImpressao = (id, origem, terminal) => fetch(`/api/retaguarda/nfce/${id}/impressoes`, { method: 'POST', headers: H, body: JSON.stringify({ origem, terminal }) }).then(json)
+export const resultadoImpressao = (iid, resultado, erro) => fetch(`/api/retaguarda/nfce/impressoes/${iid}/resultado`, { method: 'POST', headers: H, body: JSON.stringify({ resultado, erro: erro || null }) }).then(json)
+export const impressoesNfce = id => fetch(`/api/retaguarda/nfce/${id}/impressoes`, { headers: H }).then(json)
+/** Situação de impressão de uma nota para a lista: 'impressa' | 'falhou' | 'sem-confirmacao' | 'nunca' */
+export function situacaoImpressao(n) {
+  if (n.impressa) return 'impressa'
+  if (!n.tentativasImpressao) return 'nunca'
+  return n.ultimaImpressao === 'FALHA' ? 'falhou' : 'sem-confirmacao'
+}

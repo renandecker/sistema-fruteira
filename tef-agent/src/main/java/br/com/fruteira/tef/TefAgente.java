@@ -43,6 +43,8 @@ public class TefAgente {
         throw new IllegalStateException("Provedor TEF desconhecido: " + providerNome);
     }
 
+    public List<String> nomes() { List<String> l = new ArrayList<>(); for (TefProvider p : providers) l.add(p.nome()); Collections.sort(l); return l; }
+
     @PostConstruct
     void carregar() {
         try {

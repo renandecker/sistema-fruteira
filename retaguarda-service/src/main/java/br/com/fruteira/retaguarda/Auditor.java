@@ -21,6 +21,8 @@ public class Auditor {
         var r = identity.getRoles();
         return new Quem(identity.getPrincipal().getName(), r.contains("gerente") ? "gerente" : r.contains("supervisor") ? "supervisor" : "operador");
     }
+    /** Login de quem faz a chamada (token em produção; X-Usuario no desenvolvimento). */
+    public String usuario() { return quem().usuario(); }
     public Quem quem() {
         Quem q = autenticado();
         if (q != null) return q;

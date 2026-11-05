@@ -8,6 +8,13 @@ export function cnpjValido(s) {
   return dv(12) === +c[12] && dv(13) === +c[13]
 }
 export const docValido = s => { const c = somenteDigitos(s); return c.length === 11 ? cpfValido(c) : c.length === 14 && cnpjValido(c) }
+/** Campo CPF/CNPJ do caixa: '' | 'incompleto' | 'invalido' | 'ok' (11 dígitos = CPF, 14 = CNPJ; 12 e 13 ainda estão sendo digitados). */
+export function statusDoc(s) {
+  const n = somenteDigitos(s).length
+  if (!n) return ''
+  if (n < 11 || n === 12 || n === 13) return 'incompleto'
+  return docValido(s) ? 'ok' : 'invalido'
+}
 export const tipoDoc = s => { const n = somenteDigitos(s).length; return n === 11 ? 'CPF' : n === 14 ? 'CNPJ' : '' }
 export function mascaraDoc(s) {
   const c = somenteDigitos(s).slice(0, 14)
